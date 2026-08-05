@@ -349,22 +349,24 @@ function onBookSheetEdit(e) {
   }
 }
 
+// 반환값: 알라딘 API를 실제로 호출했으면 true (시간 제한 계산에 사용)
 function fillCoverForRow(sheet, headers, row) {
   const isbnCol = headers.indexOf('ISBN') + 1;
   const coverCol = headers.indexOf('표지URL') + 1;
   const descCol = headers.indexOf('소개') + 1;
-  if (!isbnCol || !coverCol || !descCol) return;
+  if (!isbnCol || !coverCol || !descCol) return false;
 
   const isbn = String(sheet.getRange(row, isbnCol).getValue() || '').trim();
-  if (!isbn) return;
+  if (!isbn) return false;
   const cover = String(sheet.getRange(row, coverCol).getValue() || '').trim();
   const desc = String(sheet.getRange(row, descCol).getValue() || '').trim();
-  if (cover && desc) return;
+  if (cover && desc) return false;
 
   const info = lookupAladin(isbn);
-  if (!info) return;
+  if (!info) return true;
   if (!cover && info.cover) sheet.getRange(row, coverCol).setValue(info.cover);
   if (!desc && info.description) sheet.getRange(row, descCol).setValue(info.description);
+  return true;
 }
 
 function lookupAladin(isbn) {
@@ -383,14 +385,30 @@ function lookupAladin(isbn) {
   }
 }
 
-// 붙여넣기 등으로 onEdit이 놓친 행이 있을 때 메뉴에서 수동 실행
+// 붙여넣기 등으로 onEdit이 놓친 행이 있을 때 메뉴에서 수동 실행.
+// 앱스크립트는 실행당 6분 제한이 있어서, 5분을 넘기면 안전하게 멈추고 어디까지 했는지 알려준다.
+// 남은 행이 있으면 메뉴를 다시 누르면 이어서 처리된다(이미 채워진 행은 건너뛰므로 중복 호출 안 됨).
 function fillAllMissingCovers() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_BOOKS);
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
   const lastRow = sheet.getLastRow();
+  const startedAt = Date.now();
+  const TIME_LIMIT_MS = 5 * 60 * 1000;
+
+  let processed = 0;
+  let stoppedEarly = false;
   for (let r = 2; r <= lastRow; r++) {
-    fillCoverForRow(sheet, headers, r);
-    Utilities.sleep(250);
+    if (Date.now() - startedAt > TIME_LIMIT_MS) { stoppedEarly = true; break; }
+    const calledApi = fillCoverForRow(sheet, headers, r);
+    if (calledApi) {
+      processed++;
+      Utilities.sleep(250);
+    }
   }
-  SpreadsheetApp.getUi().alert('표지·소개 채우기를 완료했습니다.');
+
+  if (stoppedEarly) {
+    SpreadsheetApp.getUi().alert('시간이 오래 걸려서 일부만 처리하고 멈췄습니다(' + processed + '건 처리). 메뉴를 다시 눌러 이어서 진행해주세요.');
+  } else {
+    SpreadsheetApp.getUi().alert('표지·소개 채우기를 완료했습니다(' + processed + '건 처리).');
+  }
 }
