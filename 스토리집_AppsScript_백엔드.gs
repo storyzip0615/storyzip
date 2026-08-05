@@ -308,11 +308,25 @@ function adminCompleteReturn(payload) {
 
 function onOpen() {
   SpreadsheetApp.getUi().addMenu('스토리집', [
+    { name: '① 신간 자동화 켜기 (최초 1회만 실행)', functionName: 'installEditTrigger' },
     { name: '표지·소개 다시 채우기 (ISBN 입력된 행 전체)', functionName: 'fillAllMissingCovers' },
   ]);
 }
 
-function onEdit(e) {
+// onEdit(e)라는 이름으로 직접 정의하면 "단순 트리거"가 되어 보안상 외부 API 호출(UrlFetchApp)이
+// 막힌다. 그래서 이 함수는 다른 이름으로 두고, installEditTrigger()로 "설치 트리거"에 등록해서 쓴다.
+function installEditTrigger() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'onBookSheetEdit') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('onBookSheetEdit')
+    .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
+    .onEdit()
+    .create();
+  SpreadsheetApp.getUi().alert('신간 자동화가 켜졌습니다. 이제부터 ISBN을 입력하면 표지·소개가 자동으로 채워져요.');
+}
+
+function onBookSheetEdit(e) {
   try {
     const sheet = e.range.getSheet();
     if (sheet.getName() !== SHEET_BOOKS) return;
