@@ -131,24 +131,41 @@ function getMyLoans(phone) {
   return jsonOut({ ok: true, loans });
 }
 
-// ── 이달의 추천도서 (추천도서 시트: A열=라벨, B열=값 / 6행부터 관리번호 목록) ──
+// ── 이달의 추천도서 ──
+// 추천도서 시트 구조:
+//   A1: 연월        B1: 값
+//   A2: 주제        B2: 값
+//   A3: 포스터URL   (라벨만, 값은 아래 행에 여러 장 나열 가능)
+//   A4~: 포스터 이미지 URL (한 줄에 1개씩, 여러 장 가능)
+//   ...: 관리번호    (라벨만)
+//   그 아래: 추천도서 관리번호 목록 (한 줄에 1개씩)
 function getRecommend() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_RECOMMEND);
-  if (!sheet) return jsonOut({ ok: true, month: '', theme: '', posterUrl: '', books: [] });
+  if (!sheet) return jsonOut({ ok: true, month: '', theme: '', posterUrls: [], books: [] });
 
   const values = sheet.getDataRange().getValues();
   const meta = {};
+  const labelRows = {};
   for (let i = 0; i < values.length; i++) {
     const label = String(values[i][0] || '').trim();
     if (label === '연월') meta.month = formatMonth_(values[i][1]);
     if (label === '주제') meta.theme = String(values[i][1] || '');
-    if (label === '포스터URL') meta.posterUrl = String(values[i][1] || '');
-    if (label === '관리번호') { meta.idsStartRow = i + 1; }
+    if (label === '포스터URL') labelRows.posterStart = i + 1;
+    if (label === '관리번호') labelRows.idsStart = i + 1;
+  }
+
+  const posterUrls = [];
+  if (labelRows.posterStart !== undefined) {
+    const end = labelRows.idsStart !== undefined ? labelRows.idsStart - 1 : values.length;
+    for (let i = labelRows.posterStart; i < end; i++) {
+      const v = String(values[i][0] || '').trim();
+      if (v) posterUrls.push(v);
+    }
   }
 
   const ids = [];
-  if (meta.idsStartRow !== undefined) {
-    for (let i = meta.idsStartRow; i < values.length; i++) {
+  if (labelRows.idsStart !== undefined) {
+    for (let i = labelRows.idsStart; i < values.length; i++) {
       const v = String(values[i][0] || '').trim();
       if (v) ids.push(v);
     }
@@ -174,7 +191,7 @@ function getRecommend() {
     ok: true,
     month: meta.month || '',
     theme: meta.theme || '',
-    posterUrl: meta.posterUrl || '',
+    posterUrls,
     books,
   });
 }
