@@ -73,6 +73,13 @@ function toIso(v) {
   return v ? String(v) : '';
 }
 
+function formatMonth_(v) {
+  if (v instanceof Date) {
+    return v.getFullYear() + '-' + String(v.getMonth() + 1).padStart(2, '0');
+  }
+  return v ? String(v) : '';
+}
+
 // ── 도서 목록 ──
 function getBooks() {
   const { rows } = readSheetAsObjects(SHEET_BOOKS);
@@ -133,9 +140,9 @@ function getRecommend() {
   const meta = {};
   for (let i = 0; i < values.length; i++) {
     const label = String(values[i][0] || '').trim();
-    if (label === '연월') meta.month = values[i][1];
-    if (label === '주제') meta.theme = values[i][1];
-    if (label === '포스터URL') meta.posterUrl = values[i][1];
+    if (label === '연월') meta.month = formatMonth_(values[i][1]);
+    if (label === '주제') meta.theme = String(values[i][1] || '');
+    if (label === '포스터URL') meta.posterUrl = String(values[i][1] || '');
     if (label === '관리번호') { meta.idsStartRow = i + 1; }
   }
 
