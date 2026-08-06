@@ -16,6 +16,11 @@ const SHEET_RECOMMEND = '추천도서';
 const RENTAL_DAYS = 14;
 const MAX_RENTAL = 3;
 const MAX_REC = 1;
+const VALID_RETURN_SLOTS = ['오전 (10~13시)', '오후 (13~17시)'];
+
+// 관리자 비밀번호 무차별 대입 방어용 (실패 누적 시 일정 시간 잠금)
+const ADMIN_FAIL_LIMIT = 5;
+const ADMIN_LOCK_MINUTES = 5;
 
 function doGet(e) {
   const action = e.parameter.action;
@@ -24,10 +29,13 @@ function doGet(e) {
     if (action === 'status') return getStatus();
     if (action === 'myloans') return getMyLoans(e.parameter.phone || '');
     if (action === 'recommend') return getRecommend();
-    if (action === 'admin') return getAdminRecords(e.parameter.pw || '');
+    // 관리자 비밀번호는 GET 쿼리에 남기지 않는다 — doPost의 'admin_records'로만 조회한다.
     return jsonOut({ ok: false, error: '알 수 없는 요청입니다.' });
   } catch (err) {
-    return jsonOut({ ok: false, error: String(err) });
+    // 내부 오류 원문(시트 구조·경로 등)을 클라이언트에 그대로 노출하지 않는다.
+    // 실제 원인은 Apps Script 실행 기록(Executions 로그)에서 확인한다.
+    console.error('doGet error: ' + err);
+    return jsonOut({ ok: false, error: '요청 처리 중 문제가 발생했어요. 잠시 후 다시 시도해주세요.' });
   }
 }
 
@@ -41,11 +49,13 @@ function doPost(e) {
   try {
     if (payload.action === 'apply') return applyBooks(payload);
     if (payload.action === 'return') return requestReturn(payload);
+    if (payload.action === 'admin_records') return getAdminRecords(payload.pw || '');
     if (payload.action === 'admin_confirm_pay') return adminConfirmPay(payload);
     if (payload.action === 'admin_complete_return') return adminCompleteReturn(payload);
     return jsonOut({ ok: false, error: '알 수 없는 요청입니다.' });
   } catch (err) {
-    return jsonOut({ ok: false, error: String(err) });
+    console.error('doPost error: ' + err);
+    return jsonOut({ ok: false, error: '요청 처리 중 문제가 발생했어요. 잠시 후 다시 시도해주세요.' });
   }
 }
 
@@ -80,6 +90,17 @@ function formatMonth_(v) {
   return v ? String(v) : '';
 }
 
+// http(s) URL 형식이 아니면 빈 문자열로 바꾼다 — 표지URL 열은 대부분 알라딘
+// API가 자동으로 채우지만 수동 입력도 가능해서, 프론트가 이스케이프해서 그리는
+// 것과 별개로 서버 쪽에서도 애초에 위험한 값이 나가지 않게 막는다(근본 방어 —
+// 프론트 이스케이프가 "여러 겹 방어" 중 한 겹이라면 이건 그 앞단 방어).
+function sanitizeImageUrl_(url) {
+  const s = String(url || '').trim();
+  // 스킴(http/https)만 보는 게 아니라 "'<> 같은 속성 이탈 문자도 여기서 걸러낸다
+  // — 프론트 escapeHtml()이 나중에 회귀하더라도 이 함수 하나만으로 안전하게.
+  return /^https?:\/\/[^\s"'<>]+$/.test(s) ? s : '';
+}
+
 // ── 도서 목록 ──
 function getBooks() {
   const { rows } = readSheetAsObjects(SHEET_BOOKS);
@@ -91,7 +112,7 @@ function getBooks() {
       author: String(r['저자'] || ''),
       cat: String(r['장르'] || ''),
       isbn: String(r['ISBN'] || ''),
-      coverUrl: String(r['표지URL'] || ''),
+      coverUrl: sanitizeImageUrl_(r['표지URL']),
       description: String(r['소개'] || ''),
     }));
   return jsonOut({ ok: true, books });
@@ -115,10 +136,12 @@ function getStatus() {
 // ── 내 대여 목록 ──
 function getMyLoans(phone) {
   if (!phone) return jsonOut({ ok: true, loans: [] });
+  const normalizedPhone = normalizePhone_(phone);
   const { rows } = readSheetAsObjects(SHEET_LOANS);
   const loans = rows
-    .filter(r => r['이용형태'] === '대여' && String(r['전화번호']) === String(phone) && r['상태'] !== '반납완료')
+    .filter(r => r['이용형태'] === '대여' && normalizePhone_(r['전화번호']) === normalizedPhone && r['상태'] !== '반납완료')
     .map(r => ({
+      row: r.row,
       bookId: String(r['도서관리번호']),
       title: r['도서명'],
       author: r['저자'],
@@ -154,36 +177,51 @@ function getRecommend() {
     if (label === '관리번호') labelRows.idsStart = i + 1;
   }
 
+  // 라벨을 못 찾으면(오타·행 삭제 등) 조용히 빈 값으로 넘어가지 않고 원인을
+  // 실행 기록(Executions 로그)에 남긴다 — "추천도서가 안 뜬다" 문의가 오면 여기부터 확인.
+  if (labelRows.posterStart === undefined) {
+    console.error('추천도서 시트: "포스터URL" 라벨을 A열에서 못 찾았습니다. 철자·공백을 확인하세요.');
+  }
+  if (labelRows.idsStart === undefined) {
+    console.error('추천도서 시트: "관리번호" 라벨을 A열에서 못 찾았습니다. 철자·공백을 확인하세요.');
+  }
+
+  // 포스터URL/관리번호 두 목록 구간은 시트에 어느 라벨이 먼저 오든 서로의 다음
+  // 라벨 시작 행 앞까지로 계산한다 — 라벨 순서가 바뀌어도 깨지지 않게.
+  const listStarts = [labelRows.posterStart, labelRows.idsStart].filter(v => v !== undefined).sort((a, b) => a - b);
+  function rangeEnd_(start) {
+    const next = listStarts.find(v => v > start);
+    return next !== undefined ? next - 1 : values.length;
+  }
+
   const posterUrls = [];
   if (labelRows.posterStart !== undefined) {
-    const end = labelRows.idsStart !== undefined ? labelRows.idsStart - 1 : values.length;
+    const end = rangeEnd_(labelRows.posterStart);
     for (let i = labelRows.posterStart; i < end; i++) {
-      const v = String(values[i][0] || '').trim();
+      const v = sanitizeImageUrl_(values[i][0]);
       if (v) posterUrls.push(v);
     }
   }
 
-  const ids = [];
-  if (labelRows.idsStart !== undefined) {
-    for (let i = labelRows.idsStart; i < values.length; i++) {
-      const v = String(values[i][0] || '').trim();
-      if (v) ids.push(v);
-    }
-  }
+  const ids = getRecommendBookIds_();
 
   const { rows: bookRows } = readSheetAsObjects(SHEET_BOOKS);
   const byId = {};
   bookRows.forEach(r => { byId[String(r['구분'])] = r; });
 
   const books = ids
-    .map(id => byId[id])
+    .map(id => {
+      const b = byId[id];
+      if (!b) console.error('추천도서 시트의 관리번호 "' + id + '"에 해당하는 책을 시트1에서 찾을 수 없습니다 — 오타이거나 시트1에서 삭제된 책일 수 있습니다.');
+      return b;
+    })
     .filter(r => r)
     .map(r => ({
       id: String(r['구분']),
       title: r['제목'],
       author: r['저자'],
       isbn: String(r['ISBN'] || ''),
-      coverUrl: String(r['표지URL'] || ''),
+      coverUrl: sanitizeImageUrl_(r['표지URL']),
       description: String(r['소개'] || ''),
     }));
 
@@ -201,121 +239,303 @@ function getAdminPassword() {
   return PropertiesService.getScriptProperties().getProperty('ADMIN_PASSWORD');
 }
 
-function adminAuth(pw) {
+// 실패가 ADMIN_FAIL_LIMIT회 쌓이면 ADMIN_LOCK_MINUTES분간 잠근다(무차별 대입 방어).
+// ★호출부가 반드시 락(withAdminLock_)을 쥔 상태에서 불러야 한다 — 이 함수 자체는
+// 락을 잡지 않는다(read-modify-write를 호출부의 임계구역 안에 두어 원자성을 보장하고,
+// 관리자 액션 본문까지 같은 락으로 묶어 인증-확인과 실제 변경 사이 경합도 막는다).
+// 반환값: { ok: true } 또는 { ok: false, error: '...' }
+function adminAuthCheck(pw) {
+  const props = PropertiesService.getScriptProperties();
+  const lockUntil = Number(props.getProperty('ADMIN_LOCK_UNTIL') || 0);
+  if (Date.now() < lockUntil) {
+    const minutesLeft = Math.ceil((lockUntil - Date.now()) / 60000);
+    return { ok: false, error: '비밀번호를 너무 많이 틀렸어요. ' + minutesLeft + '분 후 다시 시도해주세요.' };
+  }
+
   const real = getAdminPassword();
-  return !!real && pw === real;
+  const matched = !!real && pw === real;
+  if (matched) {
+    props.deleteProperty('ADMIN_FAIL_COUNT');
+    props.deleteProperty('ADMIN_LOCK_UNTIL');
+    return { ok: true };
+  }
+
+  const fails = Number(props.getProperty('ADMIN_FAIL_COUNT') || 0) + 1;
+  if (fails >= ADMIN_FAIL_LIMIT) {
+    props.setProperty('ADMIN_LOCK_UNTIL', String(Date.now() + ADMIN_LOCK_MINUTES * 60 * 1000));
+    props.deleteProperty('ADMIN_FAIL_COUNT');
+    return { ok: false, error: '비밀번호를 너무 많이 틀렸어요. ' + ADMIN_LOCK_MINUTES + '분 후 다시 시도해주세요.' };
+  }
+  props.setProperty('ADMIN_FAIL_COUNT', String(fails));
+  return { ok: false, error: '비밀번호가 올바르지 않아요.' };
+}
+
+// 관리자 액션 공통 진입점 — 인증 확인(카운터 read-modify-write)과 실제 시트 변경을
+// 하나의 락 임계구역으로 묶는다. 이걸 안 하면 ①동시 요청이 실패 카운터를 덮어써
+// 무차별 대입 제한이 무뎌지고 ②반납 신청과 관리자 처리가 서로 끼어들어 상태가
+// 역행할 수 있다(예: 반납완료가 반납신청으로 되돌아감).
+function withAdminLock_(pw, fn) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    return jsonOut({ ok: false, error: '지금 요청이 몰리고 있어요. 잠시 후 다시 시도해주세요.' });
+  }
+  try {
+    const auth = adminAuthCheck(pw);
+    if (!auth.ok) return jsonOut({ ok: false, error: auth.error });
+    return fn();
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getAdminRecords(pw) {
-  if (!adminAuth(pw)) return jsonOut({ ok: false, error: '비밀번호가 올바르지 않아요.' });
-  const { rows } = readSheetAsObjects(SHEET_LOANS);
-  const records = rows.map(r => ({
-    row: r.row,
-    name: r['이름'],
-    phone: r['전화번호'],
-    bookId: String(r['도서관리번호']),
-    title: r['도서명'],
-    author: r['저자'],
-    type: r['이용형태'],
-    loanDate: toIso(r['대출일']),
-    dueDate: toIso(r['반납예정일']),
-    status: r['상태'],
-    returnRequestDate: toIso(r['반납신청일시']),
-    returnTimeSlot: r['반납신청시간대'] || '',
-    paymentConfirmed: r['입금확인'] || 'N',
-  }));
-  return jsonOut({ ok: true, records });
+  return withAdminLock_(pw, function () {
+    const { rows } = readSheetAsObjects(SHEET_LOANS);
+    const records = rows.map(r => ({
+      row: r.row,
+      name: r['이름'],
+      phone: r['전화번호'],
+      bookId: String(r['도서관리번호']),
+      title: r['도서명'],
+      author: r['저자'],
+      type: r['이용형태'],
+      loanDate: toIso(r['대출일']),
+      dueDate: toIso(r['반납예정일']),
+      status: r['상태'],
+      returnRequestDate: toIso(r['반납신청일시']),
+      returnTimeSlot: r['반납신청시간대'] || '',
+      paymentConfirmed: r['입금확인'] || 'N',
+    }));
+    return jsonOut({ ok: true, records });
+  });
+}
+
+// 010/011/016~019로 시작하는 국내 휴대폰 번호 형식만 통과시킨다(하이픈 유무 무관).
+// 프론트에도 동일한 검증이 있지만, POST body는 클라이언트가 임의로 보낼 수 있으므로
+// 서버에서도 반드시 확인한다.
+function isValidPhone_(phone) {
+  return /^01[016789]-?\d{3,4}-?\d{4}$/.test(String(phone || '').trim());
+}
+
+// 숫자만 남긴다 — "010-1234-5678"과 "01012345678"을 같은 사람으로 인식하게 해서,
+// 하이픈 표기만 바꿔가며 대여 3권 한도를 우회하는 것을 막는다. 시트에 과거부터
+// 섞여 있는 표기(하이픈 있음/없음)도 비교 시점에 이걸 거치면 동일하게 취급된다.
+function normalizePhone_(phone) {
+  return String(phone || '').replace(/\D/g, '');
+}
+
+// 이달의 추천도서 관리번호 목록만 필요할 때 쓰는 경량 버전 — getRecommend()와
+// 같은 파싱 로직을 공유한다(로직 두 곳에 따로 두면 드리프트 위험).
+function getRecommendBookIds_() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_RECOMMEND);
+  if (!sheet) return [];
+  const values = sheet.getDataRange().getValues();
+  const labelRows = {};
+  for (let i = 0; i < values.length; i++) {
+    const label = String(values[i][0] || '').trim();
+    if (label === '포스터URL') labelRows.posterStart = i + 1;
+    if (label === '관리번호') labelRows.idsStart = i + 1;
+  }
+  if (labelRows.idsStart === undefined) return [];
+  const listStarts = [labelRows.posterStart, labelRows.idsStart].filter(v => v !== undefined).sort((a, b) => a - b);
+  const next = listStarts.find(v => v > labelRows.idsStart);
+  const end = next !== undefined ? next - 1 : values.length;
+  const ids = [];
+  for (let i = labelRows.idsStart; i < end; i++) {
+    const v = String(values[i][0] || '').trim();
+    if (v) ids.push(v);
+  }
+  return ids;
 }
 
 // ── 대여/구매 신청 ──
 function applyBooks(payload) {
   const name = String(payload.name || '').trim();
-  const phone = String(payload.phone || '').trim();
+  const rawPhone = String(payload.phone || '').trim();
   const type = payload.type;
   const items = payload.items || [];
 
-  if (!name || !phone) return jsonOut({ ok: false, error: '이름과 연락처를 입력해주세요.' });
+  if (!name || !rawPhone) return jsonOut({ ok: false, error: '이름과 연락처를 입력해주세요.' });
+  if (!isValidPhone_(rawPhone)) return jsonOut({ ok: false, error: '전화번호 형식을 확인해주세요. 예: 010-1234-5678' });
   if (!items.length) return jsonOut({ ok: false, error: '선택한 도서가 없어요.' });
   if (type !== '대여' && type !== '구매') return jsonOut({ ok: false, error: '이용 형태가 올바르지 않아요.' });
 
-  if (type === '대여') {
-    const activeForPhone = getActiveLoanRows().filter(r => String(r['전화번호']) === phone).length;
-    if (activeForPhone + items.length > MAX_RENTAL) {
-      return jsonOut({ ok: false, error: '대여는 1인당 최대 ' + MAX_RENTAL + '권까지 가능해요.' });
+  // "010-1234-5678"과 "01012345678"을 같은 사람으로 취급한다 — 하이픈 표기만
+  // 바꿔가며 대여 한도(전화번호별 집계)를 우회하지 못하게. 시트에도 이 정규화된
+  // 형태로 저장해서 다음 조회 때도 계속 같은 사람으로 인식되게 한다.
+  const phone = normalizePhone_(rawPhone);
+
+  // 클라이언트가 보낸 도서명·저자를 그대로 믿지 않는다 — 실제 시트1과 대조해
+  // 서버가 아는 값으로 덮어쓴다. bookId가 실존하지 않으면 신청 자체를 막는다.
+  // (위조된 bookId나 대여기록에 임의 텍스트가 남는 것을 원천 차단 — 관리자 화면
+  // 등에서 그 값을 보여줄 때 XSS 방어를 여러 겹으로 하는 것보다 근본적인 방어.)
+  const { rows: bookRows } = readSheetAsObjects(SHEET_BOOKS);
+  const bookById = {};
+  bookRows.forEach(r => { bookById[String(r['구분'])] = r; });
+
+  const resolvedItems = [];
+  const seenBookIds = new Set();
+  for (const it of items) {
+    const bookId = String(it.bookId);
+    if (seenBookIds.has(bookId)) {
+      return jsonOut({ ok: false, error: '같은 책이 목록에 두 번 포함되어 있어요. 새로고침 후 다시 시도해주세요.' });
     }
-    const activeBookIds = new Set(getActiveLoanRows().map(r => String(r['도서관리번호'])));
-    const alreadyOut = items.find(it => activeBookIds.has(String(it.bookId)));
-    if (alreadyOut) {
-      return jsonOut({ ok: false, error: '이미 대여 중인 도서가 포함되어 있어요. 새로고침 후 다시 시도해주세요.' });
-    }
+    seenBookIds.add(bookId);
+    const book = bookById[bookId];
+    if (!book) return jsonOut({ ok: false, error: '선택한 도서 중 존재하지 않는 항목이 있어요. 새로고침 후 다시 시도해주세요.' });
+    resolvedItems.push({
+      bookId: bookId,
+      title: String(book['제목'] || ''),
+      author: String(book['저자'] || ''),
+    });
   }
 
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LOANS);
-  const now = new Date();
-  const dueDate = new Date(now.getTime() + RENTAL_DAYS * 24 * 60 * 60 * 1000);
+  // "이미 대여중인지/권수초과인지 확인 → 기록 추가" 사이에 다른 신청이 끼어들면
+  // 같은 책이 동시에 두 사람에게 대여 처리될 수 있어 잠근다(레이스 컨디션 방지).
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) {
+    return jsonOut({ ok: false, error: '지금 신청이 몰리고 있어요. 잠시 후 다시 시도해주세요.' });
+  }
+  try {
+    if (type === '대여') {
+      const activeLoans = getActiveLoanRows();
+      const activeForPhone = activeLoans.filter(r => normalizePhone_(r['전화번호']) === phone).length;
+      if (activeForPhone + resolvedItems.length > MAX_RENTAL) {
+        return jsonOut({ ok: false, error: '대여는 1인당 최대 ' + MAX_RENTAL + '권까지 가능해요.' });
+      }
+      const activeBookIds = new Set(activeLoans.map(r => String(r['도서관리번호'])));
+      const alreadyOut = resolvedItems.find(it => activeBookIds.has(it.bookId));
+      if (alreadyOut) {
+        return jsonOut({ ok: false, error: '이미 대여 중인 도서가 포함되어 있어요. 새로고침 후 다시 시도해주세요.' });
+      }
 
-  items.forEach(it => {
-    sheet.appendRow([
-      Utilities.getUuid(),
-      name,
-      phone,
-      it.bookId,
-      it.title,
-      it.author,
-      type,
-      type === '대여' ? now : '',
-      type === '대여' ? dueDate : '',
-      type === '대여' ? '대여중' : '구매신청',
-      '',
-      '',
-      'N',
-    ]);
-  });
+      // 이달의 추천도서는 1인당 MAX_REC권까지만 — "이미 대여 중인 추천도서 수"와
+      // "이번에 새로 신청하는 추천도서 수"를 합산해서 확인해야 한다(따로 두 번
+      // 나눠 신청하는 우회를 막으려면). 활성 대출 스냅샷과 같은 락 안에서 계산해야
+      // 정확하다(락 밖에서 계산하면 그 사이 다른 신청이 끼어들 수 있다).
+      const recIds = new Set(getRecommendBookIds_());
+      const activeRecForPhone = activeLoans.filter(r => normalizePhone_(r['전화번호']) === phone && recIds.has(String(r['도서관리번호']))).length;
+      const newRecCount = resolvedItems.filter(it => recIds.has(it.bookId)).length;
+      if (activeRecForPhone + newRecCount > MAX_REC) {
+        return jsonOut({ ok: false, error: '이달의 추천도서는 1인당 최대 ' + MAX_REC + '권까지 대여할 수 있어요.' });
+      }
+    }
 
-  return jsonOut({ ok: true });
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LOANS);
+    const now = new Date();
+    const dueDate = new Date(now.getTime() + RENTAL_DAYS * 24 * 60 * 60 * 1000);
+
+    resolvedItems.forEach(it => {
+      sheet.appendRow([
+        Utilities.getUuid(),
+        name,
+        phone,
+        it.bookId,
+        it.title,
+        it.author,
+        type,
+        type === '대여' ? now : '',
+        type === '대여' ? dueDate : '',
+        type === '대여' ? '대여중' : '구매신청',
+        '',
+        '',
+        'N',
+      ]);
+    });
+
+    return jsonOut({ ok: true });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ── 반납 신청 ──
 function requestReturn(payload) {
-  const phone = String(payload.phone || '');
+  const phone = normalizePhone_(payload.phone || '');
   const bookId = String(payload.bookId || '');
-  const returnDate = payload.returnDate;
-  const returnTimeSlot = payload.returnTimeSlot;
+  const rowNum = payload.row ? Number(payload.row) : null;
+  const returnDate = String(payload.returnDate || '');
+  const returnTimeSlot = String(payload.returnTimeSlot || '');
 
-  const { sheet, rows } = readSheetAsObjects(SHEET_LOANS);
-  const target = rows.find(r => String(r['전화번호']) === phone && String(r['도서관리번호']) === bookId && r['상태'] === '대여중');
-  if (!target) return jsonOut({ ok: false, error: '대여 중인 도서를 찾을 수 없어요.' });
+  // 서버도 날짜·시간대 값을 확인한다 — 프론트가 과거 날짜·임의 문자열을 못 보내게
+  // 막고 있지만, POST body는 클라이언트가 임의로 구성할 수 있다.
+  // 엄격한 YYYY-MM-DD 형식만 통과시킨다 — "2026-1-1"처럼 0-패딩 안 된 값은
+  // 문자열 비교("2026-1-1" > "2026-08-06")에서 미래 날짜로 잘못 판정될 수 있었다.
+  // 형식이 맞아도 "2027-02-30"처럼 실존하지 않는 날짜는 JS Date가 3월 2일로
+  // 조용히 보정해버려서 형식·과거날짜 검사를 다 통과할 수 있다 — round-trip으로
+  // (문자열→Date→다시 문자열) 원래 값과 같은지 대조해 이런 값도 거른다.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(returnDate)) {
+    return jsonOut({ ok: false, error: '반납 예정 일시를 올바르게 선택해주세요.' });
+  }
+  const parsedDate = new Date(returnDate + 'T00:00:00');
+  const roundTrip = parsedDate.getFullYear() + '-' +
+    String(parsedDate.getMonth() + 1).padStart(2, '0') + '-' +
+    String(parsedDate.getDate()).padStart(2, '0');
+  if (isNaN(parsedDate.getTime()) || roundTrip !== returnDate) {
+    return jsonOut({ ok: false, error: '반납 예정 일시를 올바르게 선택해주세요.' });
+  }
+  // 서울(한국) 기준 오늘 날짜와 비교한다 — UTC 기준으로 비교하면 자정부터
+  // 오전 9시 사이엔 한국은 이미 다음 날인데 하루 전으로 오판될 수 있다.
+  const todaySeoul = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  if (returnDate < todaySeoul) {
+    return jsonOut({ ok: false, error: '반납 예정일은 오늘 이후 날짜로 선택해주세요.' });
+  }
+  if (VALID_RETURN_SLOTS.indexOf(returnTimeSlot) === -1) {
+    return jsonOut({ ok: false, error: '방문 시간대를 올바르게 선택해주세요.' });
+  }
 
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
-  const statusCol = headers.indexOf('상태') + 1;
-  const reqDateCol = headers.indexOf('반납신청일시') + 1;
-  const reqSlotCol = headers.indexOf('반납신청시간대') + 1;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) {
+    return jsonOut({ ok: false, error: '지금 요청이 몰리고 있어요. 잠시 후 다시 시도해주세요.' });
+  }
+  try {
+    const { sheet, rows } = readSheetAsObjects(SHEET_LOANS);
+    // row(시트 고유 행 번호)가 있으면 그걸로 정확히 특정하되, bookId도 반드시
+    // 함께 대조한다 — bookId를 비워 보내는 방식으로 이 대조를 생략시킬 수
+    // 없도록(동일 전화번호의 다른 대여건을 잘못 반납 처리하는 경로 차단).
+    // row가 없는 옛 클라이언트 호출만 전화번호+bookId 방식으로 폴백한다.
+    const target = rowNum
+      ? (bookId
+          ? rows.find(r => r.row === rowNum && normalizePhone_(r['전화번호']) === phone && r['상태'] === '대여중' && String(r['도서관리번호']) === bookId)
+          : null)
+      : rows.find(r => normalizePhone_(r['전화번호']) === phone && String(r['도서관리번호']) === bookId && r['상태'] === '대여중');
+    if (!target) return jsonOut({ ok: false, error: '대여 중인 도서를 찾을 수 없어요.' });
 
-  sheet.getRange(target.row, statusCol).setValue('반납신청');
-  sheet.getRange(target.row, reqDateCol).setValue(returnDate);
-  sheet.getRange(target.row, reqSlotCol).setValue(returnTimeSlot);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+    const statusCol = headers.indexOf('상태') + 1;
+    const reqDateCol = headers.indexOf('반납신청일시') + 1;
+    const reqSlotCol = headers.indexOf('반납신청시간대') + 1;
 
-  return jsonOut({ ok: true });
+    sheet.getRange(target.row, statusCol).setValue('반납신청');
+    sheet.getRange(target.row, reqDateCol).setValue(returnDate);
+    sheet.getRange(target.row, reqSlotCol).setValue(returnTimeSlot);
+
+    return jsonOut({ ok: true });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ── 관리자: 입금 확인 ──
 function adminConfirmPay(payload) {
-  if (!adminAuth(payload.pw)) return jsonOut({ ok: false, error: '권한이 없어요.' });
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LOANS);
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
-  const col = headers.indexOf('입금확인') + 1;
-  sheet.getRange(payload.row, col).setValue('Y');
-  return jsonOut({ ok: true });
+  return withAdminLock_(payload.pw, function () {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LOANS);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+    const col = headers.indexOf('입금확인') + 1;
+    sheet.getRange(payload.row, col).setValue('Y');
+    return jsonOut({ ok: true });
+  });
 }
 
 // ── 관리자: 반납 완료 처리 ──
 function adminCompleteReturn(payload) {
-  if (!adminAuth(payload.pw)) return jsonOut({ ok: false, error: '권한이 없어요.' });
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LOANS);
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
-  const col = headers.indexOf('상태') + 1;
-  sheet.getRange(payload.row, col).setValue('반납완료');
-  return jsonOut({ ok: true });
+  return withAdminLock_(payload.pw, function () {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LOANS);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+    const col = headers.indexOf('상태') + 1;
+    sheet.getRange(payload.row, col).setValue('반납완료');
+    return jsonOut({ ok: true });
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -362,7 +582,9 @@ function onBookSheetEdit(e) {
       fillCoverForRow(sheet, headers, r);
     }
   } catch (err) {
-    // 트리거 오류가 시트 편집 자체를 막지 않도록 조용히 무시한다.
+    // 트리거 오류가 시트 편집 자체를 막지는 않되(그래서 여기서 다시 던지지 않음),
+    // 원인은 실행 기록에 남긴다 — "ISBN 입력했는데 표지가 안 채워진다" 문의 시 확인용.
+    console.error('onBookSheetEdit 오류: ' + err);
   }
 }
 
@@ -381,23 +603,51 @@ function fillCoverForRow(sheet, headers, row) {
 
   const info = lookupAladin(isbn);
   if (!info) return true;
-  if (!cover && info.cover) sheet.getRange(row, coverCol).setValue(info.cover);
+  // 알라딘 API 응답을 사람 검수 없이 그대로 저장하므로, 저장 시점에 형식을
+  // 확인한다 — http(s) URL이 아니면 애초에 셀에 쓰지 않는다.
+  const safeCover = sanitizeImageUrl_(info.cover);
+  if (!cover && safeCover) sheet.getRange(row, coverCol).setValue(safeCover);
   if (!desc && info.description) sheet.getRange(row, descCol).setValue(info.description);
   return true;
 }
 
+// 실패해도 항상 null만 반환하지만(호출부는 "표지 없음"으로 취급, 다음 실행 때
+// 자동 재시도됨), 원인별로 실행 기록(Executions 로그)에 남겨서 "왜 이 책만
+// 표지가 안 채워지나"를 admin이 나중에 로그로 구분할 수 있게 한다 —
+// 알라딘 서버 오류/요청제한(일시적, 재시도하면 될 일)인지, 정말 알라딘에
+// 없는 책(독립출판 등, ISBN을 다시 확인해야 할 일)인지 구분.
 function lookupAladin(isbn) {
   const ttbkey = PropertiesService.getScriptProperties().getProperty('ALADIN_TTBKEY');
-  if (!ttbkey) return null;
+  if (!ttbkey) {
+    console.error('ALADIN_TTBKEY가 스크립트 속성에 없습니다 — 표지·소개 자동화가 전부 동작하지 않습니다. 재시도로 해결되지 않으니 스크립트 속성을 확인하세요.');
+    return null;
+  }
   const url = 'https://www.aladin.co.kr/ttb/api/ItemLookUp.aspx?ttbkey=' + ttbkey +
     '&ItemId=' + isbn + '&ItemIdType=ISBN13&output=js&Version=20131101&Cover=Big';
   try {
     const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const code = res.getResponseCode();
+    if (code === 401 || code === 403) {
+      console.error('알라딘 API 인증 오류 (ISBN ' + isbn + '): HTTP ' + code + ' — TTBKey가 잘못됐거나 만료됐을 가능성이 높습니다. 재시도로는 해결되지 않으니 키를 재발급·재확인하세요.');
+      return null;
+    }
+    if (code !== 200) {
+      console.error('알라딘 API 응답 오류 (ISBN ' + isbn + '): HTTP ' + code + ' — 일시적 오류일 수 있음, 다음 실행 때 자동 재시도됨');
+      return null;
+    }
     const data = JSON.parse(res.getContentText());
+    if (data.errorCode) {
+      console.error('알라딘 API 에러 (ISBN ' + isbn + '): ' + data.errorCode + ' ' + (data.errorMessage || ''));
+      return null;
+    }
     const item = data.item && data.item[0];
-    if (!item) return null;
+    if (!item) {
+      console.error('알라딘에 해당 ISBN이 없습니다: ' + isbn + ' (독립출판·자체제작물 등일 수 있음 — ISBN 재확인 필요)');
+      return null;
+    }
     return { cover: item.cover, description: item.description };
   } catch (err) {
+    console.error('알라딘 API 호출 실패 (ISBN ' + isbn + '): ' + err);
     return null;
   }
 }
