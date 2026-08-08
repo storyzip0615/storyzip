@@ -1387,14 +1387,18 @@
   let recBooks = {}; // 이달의 추천도서에서 표시 중인 책: id -> book (BOOKS 조회 실패 시 대비용)
 
   // 모달을 연 뒤 사용자가 바로 다른 책을 또 열면, 먼저 보낸 요청의 응답이 나중에 와서
-  // 방금 연 책의 소개글을 엉뚱한 책 것으로 덮어쓸 수 있다 — 이 값으로 "지금 열려 있는
-  // 책"과 응답이 일치할 때만 반영한다.
-  let openDetailRequestId = null;
+  // 방금 연 책의 소개글을 엉뚱한 책 것으로 덮어쓸 수 있다 — 매 호출마다 증가하는 순번
+  // (id가 아니라 시퀀스)으로 가드한다. id로 비교하면 A를 열고(느림)→B를 열고→A를 다시
+  // 열었을 때(빠르게 성공) 그 뒤에야 도착한 첫 번째 A 요청의 콜백이 "id가 A와 같다"는
+  // 이유로 통과해버려, 방금 성공적으로 보여준 전체 소개글을 옛 요청의 결과로 덮어쓰는
+  // ABA 문제가 생긴다(reviewer-codex R1 MEDIUM) — 시퀀스는 같은 책 재호출도 구분하므로
+  // 이 문제가 없다.
+  let openDetailSeq = 0;
 
   async function openBookDetail(id) {
     const b = BOOKS.find(x => String(x.id) === String(id)) || recBooks[id];
     if (!b) return;
-    openDetailRequestId = id;
+    const mySeq = ++openDetailSeq;
     document.getElementById('bookDetailCover').innerHTML = b.coverUrl
       ? '<img src="' + escapeHtml(b.coverUrl) + '" alt="" onerror="this.parentElement.innerHTML=\'\'">'
       : '';
@@ -1409,12 +1413,12 @@
     try {
       const res = await fetch(APPS_SCRIPT_URL + '?action=bookDetail&id=' + encodeURIComponent(id));
       const data = await res.json();
-      if (openDetailRequestId !== id) return; // 그 사이 다른 책 모달을 열었으면 반영하지 않는다
+      if (openDetailSeq !== mySeq) return; // 그 사이 다른 호출(같은 책 재호출 포함)이 또 있었으면 반영하지 않는다
       const fullDesc = data.ok && data.book ? data.book.description : '';
       document.getElementById('bookDetailDesc').textContent = fullDesc || b.description || '소개 정보가 없습니다.';
     } catch (err) {
       // 네트워크 실패 시 완전 공백보다는 목록에서 이미 갖고 있던(잘린) 소개글이라도 보여준다.
-      if (openDetailRequestId !== id) return;
+      if (openDetailSeq !== mySeq) return;
       document.getElementById('bookDetailDesc').textContent = b.description || '소개 정보가 없습니다.';
     }
   }

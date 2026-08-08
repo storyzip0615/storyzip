@@ -131,6 +131,24 @@ function cacheRemoveChunked_(key) {
   if (keys.length) cache.removeAll(keys);
 }
 
+// ── 캐시 부활(stale resurrection) 방지 — 세대값 기반 낙관적 동시성 (reviewer-codex R1 HIGH) ──
+// getBooks()/getRecommend()는 캐시 miss 시 시트를 읽고 JSON을 만든 뒤 캐시에 저장한다.
+// 이 read~put 사이에 onBookSheetEdit이 캐시를 지워도, 이미 read를 시작해 옛 데이터를 쥔
+// 요청이 그 뒤에 put하면 방금 지운 캐시가 옛 값으로 되살아나(stale resurrection) 최대
+// 5분간 낡은 데이터가 다시 보일 수 있다. 락 대신 정수 세대값으로 막는다: 편집이 있을
+// 때마다(onBookSheetEdit 맨 앞) 세대를 +1 올리고, read 시작 직전(genBefore)과 put 직전
+// (genAfter)의 세대가 같을 때만 캐시에 쓴다 — 다르면 그 사이 편집이 끼어든 것이므로
+// 캐싱을 포기한다(응답 자체는 그대로 반환, 캐시에만 안 남긴다).
+function bumpCacheGeneration_() {
+  const props = PropertiesService.getScriptProperties();
+  const cur = Number(props.getProperty('CACHE_GEN') || 0);
+  props.setProperty('CACHE_GEN', String(cur + 1));
+}
+
+function getCacheGeneration_() {
+  return Number(PropertiesService.getScriptProperties().getProperty('CACHE_GEN') || 0);
+}
+
 // ── 공통: 헤더 이름 기준으로 시트를 객체 배열로 읽기 ──
 function readSheetAsObjects(sheetName) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
@@ -174,10 +192,16 @@ function sanitizeImageUrl_(url) {
 // 있었다. 화면에 어차피 안 보이는 텍스트라 목록 응답에서는 짧게 잘라 보낸다 — 전체
 // 텍스트는 getBookDetail()에서 별도로 지연 로딩한다(평균 소개글 길이 137자 참고, 2줄
 // 클램프는 120자면 넉넉히 채우고도 남는다).
+// ★String.prototype.slice(0,120)은 UTF-16 code unit 기준이라, 자르는 경계가 이모지 등
+// surrogate pair 중간이면 고아 서로게이트가 생겨 깨진 문자가 만들어질 수 있다
+// (reviewer-codex R1 LOW). Array.from(s)는 유니코드 코드포인트 단위로 나누므로 그
+// 배열을 자르면 항상 온전한 문자 경계에서 끊긴다 — 길이 판정도 코드포인트 개수 기준으로
+// 맞춘다(s.length 그대로 쓰면 판정 기준과 자르는 기준이 어긋난다).
 function truncateDesc_(text, maxLen) {
   const s = String(text || '');
-  if (s.length <= maxLen) return s;
-  return s.slice(0, maxLen) + '…';
+  const codepoints = Array.from(s);
+  if (codepoints.length <= maxLen) return s;
+  return codepoints.slice(0, maxLen).join('') + '…';
 }
 
 // ── 도서 목록 ──
@@ -185,6 +209,7 @@ function getBooks() {
   const cached = cacheGetChunked_('books_cache');
   if (cached) return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
 
+  const genBefore = getCacheGeneration_();
   const { rows } = readSheetAsObjects(SHEET_BOOKS);
   const books = rows
     .filter(r => String(r['제목'] || '').trim())
@@ -198,7 +223,10 @@ function getBooks() {
       description: truncateDesc_(r['소개'], 120),
     }));
   const json = JSON.stringify({ ok: true, books });
-  cachePutChunked_('books_cache', json, 300);
+  // read 시작 이후 편집이 끼어들지 않았을 때만(세대 불변) 캐시에 쓴다 — stale resurrection 방지.
+  if (getCacheGeneration_() === genBefore) {
+    cachePutChunked_('books_cache', json, 300);
+  }
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -270,6 +298,7 @@ function getRecommend() {
   const cached = cacheGetChunked_('recommend_cache');
   if (cached) return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
 
+  const genBefore = getCacheGeneration_();
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_RECOMMEND);
   if (!sheet) return jsonOut({ ok: true, month: '', theme: '', posterUrls: [], books: [] });
 
@@ -339,7 +368,10 @@ function getRecommend() {
     posterUrls,
     books,
   });
-  cachePutChunked_('recommend_cache', json, 300);
+  // read 시작 이후 편집이 끼어들지 않았을 때만(세대 불변) 캐시에 쓴다 — stale resurrection 방지.
+  if (getCacheGeneration_() === genBefore) {
+    cachePutChunked_('recommend_cache', json, 300);
+  }
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -725,8 +757,14 @@ function onBookSheetEdit(e) {
     // 제목/저자/소개/표지를 그대로 읽어 쓰므로(추천도서 카드가 같은 데이터를 재사용)
     // 함께 무효화한다 — 안 그러면 시트1을 고쳐도 추천도서 카드는 최대 5분 동안 옛 값을
     // 보여주게 된다.
+    // ★세대값도 함께 올린다(bumpCacheGeneration_) — 캐시 삭제만으로는 부족하다. 이미
+    // read를 시작해 옛 데이터를 쥔 요청이 이 삭제 '이후'에 put하면 방금 지운 캐시가
+    // 옛 값으로 되살아날 수 있다(stale resurrection). getBooks()/getRecommend()는 read
+    // 시작 전과 put 직전의 세대값을 비교해서 이 사이 편집이 있었으면 캐싱을 포기하므로,
+    // 세대를 여기서 반드시 함께 올려야 그 검증이 의미를 가진다(reviewer-codex R1 HIGH).
     cacheRemoveChunked_('books_cache');
     cacheRemoveChunked_('recommend_cache');
+    bumpCacheGeneration_();
 
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
     const isbnCol = headers.indexOf('ISBN') + 1;
