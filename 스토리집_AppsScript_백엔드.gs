@@ -292,22 +292,35 @@ function adminAuthCheckToken_(token) {
 // 있으면 adminAuthCheckToken_(카운터 미접촉)로, 없으면 adminAuthCheck(pw)(카운터 접촉)로
 // 검증한다. fn은 (viaToken) 하나를 받는다 — viaToken=false면 방금 pw로 새로 로그인한
 // 것이므로 호출부가 새 토큰을 발급해도 된다는 신호다.
-// ★분기는 반드시 '필드 존재 여부'로 한다 — '값이 truthy한가'로 하지 않는다. token 필드가
-// payload에 있으면(null·빈문자열이라도) 무조건 token 경로로 보내 무효 토큰은 그 안에서
-// 거절한다(카운터 미접촉 유지). token이 없고 값이 falsy(예: '' )라서 truthiness로 분기하면
-// pw 경로로 새어 들어가 ADMIN_FAIL_COUNT/ADMIN_LOCK_UNTIL을 건드리게 된다 — 토큰 만료는
-// 무차별 대입이 아니므로 이 오염은 반드시 막아야 한다(reviewer-codex R1 REVISE 지적사항,
-// 이 프로젝트에서 실수로 5분 잠금을 두 번 유발한 전례와 같은 실패모드).
+// ★분기는 반드시 '필드 존재 여부'로 한다 — '값이 truthy한가'로 하지 않는다(reviewer-codex
+// R1 REVISE). token 필드가 payload에 있으면(null·빈문자열이라도) 무조건 token 경로로
+// 보내 무효 토큰은 그 안에서 거절한다(카운터 미접촉 유지).
+// ★3-way 분기(reviewer-codex R2 REVISE): token/pw 필드가 '둘 다 없는' 경우를 pw 경로로
+// 합쳐버리면 adminAuthCheck(undefined)가 호출돼 오답 취급으로 카운터가 오염된다. 이
+// 백엔드 URL은 이제 GitHub Pages로 공개돼 있어(발견 난이도 하락), 인증 필드를 아예
+// 빼고 admin_confirm_pay 등을 5회 찌르는 것만으로 진짜 관리자를 5분 잠글 수 있는
+// 구멍이었다. 그래서 ①token 필드 있음→adminAuthCheckToken_(카운터 미접촉)
+// ②token 없고 pw 필드 있음→adminAuthCheck(pw)(카운터 접촉, 기존 로그인 동작)
+// ③둘 다 없음→adminAuthCheck 자체를 호출하지 않고 카운터 미접촉인 채로 즉시 거절 —
+// 세 갈래로 명시적으로 나눈다.
 function withAdminLock_(auth, fn) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) {
     return jsonOut({ ok: false, error: '지금 요청이 몰리고 있어요. 잠시 후 다시 시도해주세요.' });
   }
   try {
-    const viaToken = !!(auth && Object.prototype.hasOwnProperty.call(auth, 'token'));
-    const result = viaToken ? adminAuthCheckToken_(auth.token) : adminAuthCheck(auth && auth.pw);
+    const hasToken = !!(auth && Object.prototype.hasOwnProperty.call(auth, 'token'));
+    const hasPw = !!(auth && Object.prototype.hasOwnProperty.call(auth, 'pw'));
+    let result;
+    if (hasToken) {
+      result = adminAuthCheckToken_(auth.token);
+    } else if (hasPw) {
+      result = adminAuthCheck(auth.pw);
+    } else {
+      result = { ok: false, error: '인증 정보가 없습니다.' };
+    }
     if (!result.ok) return jsonOut({ ok: false, error: result.error });
-    return fn(viaToken);
+    return fn(hasToken);
   } finally {
     lock.releaseLock();
   }
