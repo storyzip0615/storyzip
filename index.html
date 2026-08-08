@@ -1797,7 +1797,9 @@
   }
 
   // ── 관리자 화면 ──
-  let adminPassword = null;
+  // 원문 비밀번호는 로그인 응답 이후 메모리에 남기지 않는다 — 대신 서버가 발급한
+  // 세션 토큰(30분 TTL)만 저장해 이후 요청에 재사용한다.
+  let adminToken = null;
   let adminRecords = [];
   let adminTab = 'overdue';
 
@@ -1816,7 +1818,7 @@
         alert(data.error || '비밀번호가 올바르지 않아요.');
         return;
       }
-      adminPassword = pw;
+      adminToken = data.token;
       adminRecords = data.records;
       document.getElementById('adminPwModal').style.display = 'none';
       document.getElementById('adminPw').value = '';
@@ -1848,7 +1850,7 @@
     try {
       const res = await fetch(APPS_SCRIPT_URL, {
         method: 'POST',
-        body: JSON.stringify({ action: 'admin_records', pw: adminPassword })
+        body: JSON.stringify({ action: 'admin_records', token: adminToken })
       });
       const data = await res.json();
       if (data.ok) adminRecords = data.records;
@@ -1935,7 +1937,7 @@
     try {
       const res = await fetch(APPS_SCRIPT_URL, {
         method: 'POST',
-        body: JSON.stringify({ action: action, pw: adminPassword, row: row })
+        body: JSON.stringify({ action: action, token: adminToken, row: row })
       });
       const data = await res.json();
       if (!data.ok) {

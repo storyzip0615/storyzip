@@ -22,6 +22,9 @@ const VALID_RETURN_SLOTS = ['오전 (10~13시)', '오후 (13~17시)'];
 const ADMIN_FAIL_LIMIT = 5;
 const ADMIN_LOCK_MINUTES = 5;
 
+// 관리자 세션 토큰 TTL(초) — 로그인 이후에는 원문 비밀번호 대신 이 토큰으로 인증한다.
+const ADMIN_TOKEN_TTL_SEC = 1800;
+
 function doGet(e) {
   const action = e.parameter.action;
   try {
@@ -49,7 +52,7 @@ function doPost(e) {
   try {
     if (payload.action === 'apply') return applyBooks(payload);
     if (payload.action === 'return') return requestReturn(payload);
-    if (payload.action === 'admin_records') return getAdminRecords(payload.pw || '');
+    if (payload.action === 'admin_records') return getAdminRecords(payload);
     if (payload.action === 'admin_confirm_pay') return adminConfirmPay(payload);
     if (payload.action === 'admin_complete_return') return adminCompleteReturn(payload);
     return jsonOut({ ok: false, error: '알 수 없는 요청입니다.' });
@@ -270,26 +273,42 @@ function adminAuthCheck(pw) {
   return { ok: false, error: '비밀번호가 올바르지 않아요.' };
 }
 
-// 관리자 액션 공통 진입점 — 인증 확인(카운터 read-modify-write)과 실제 시트 변경을
-// 하나의 락 임계구역으로 묶는다. 이걸 안 하면 ①동시 요청이 실패 카운터를 덮어써
-// 무차별 대입 제한이 무뎌지고 ②반납 신청과 관리자 처리가 서로 끼어들어 상태가
-// 역행할 수 있다(예: 반납완료가 반납신청으로 되돌아감).
-function withAdminLock_(pw, fn) {
+// 토큰 검증 전용 — CacheService 존재 여부만 본다. ★ADMIN_FAIL_COUNT/ADMIN_LOCK_UNTIL
+// (PropertiesService, adminAuthCheck 전용)은 이 함수 안 어디에서도 읽거나 쓰지 않는다 —
+// 토큰 만료·미제출은 무차별 대입 시도가 아니므로 로그인 실패 카운터·5분 잠금에 영향을
+// 주면 안 된다(이 프로젝트에서 실수로 5분 잠금을 두 번 유발한 전례가 있어 특히 분리한다).
+function adminAuthCheckToken_(token) {
+  if (!token) return { ok: false, error: '세션이 만료됐어요. 다시 로그인해주세요.' };
+  const cached = CacheService.getScriptCache().get(token);
+  if (!cached) return { ok: false, error: '세션이 만료됐어요. 다시 로그인해주세요.' };
+  return { ok: true };
+}
+
+// 관리자 액션 공통 진입점 — 인증 확인과 실제 시트 변경을 하나의 락 임계구역으로 묶는다.
+// 이걸 안 하면 ①동시 요청이 실패 카운터를 덮어써 무차별 대입 제한이 무뎌지고 ②반납
+// 신청과 관리자 처리가 서로 끼어들어 상태가 역행할 수 있다(예: 반납완료가 반납신청으로
+// 되돌아감).
+// auth = { pw, token } — 최초 로그인은 pw로, 이후 액션은 token으로 인증한다. token이
+// 있으면 adminAuthCheckToken_(카운터 미접촉)로, 없으면 adminAuthCheck(pw)(카운터 접촉)로
+// 검증한다. fn은 (viaToken) 하나를 받는다 — viaToken=false면 방금 pw로 새로 로그인한
+// 것이므로 호출부가 새 토큰을 발급해도 된다는 신호다.
+function withAdminLock_(auth, fn) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) {
     return jsonOut({ ok: false, error: '지금 요청이 몰리고 있어요. 잠시 후 다시 시도해주세요.' });
   }
   try {
-    const auth = adminAuthCheck(pw);
-    if (!auth.ok) return jsonOut({ ok: false, error: auth.error });
-    return fn();
+    const viaToken = !!(auth && auth.token);
+    const result = viaToken ? adminAuthCheckToken_(auth.token) : adminAuthCheck(auth && auth.pw);
+    if (!result.ok) return jsonOut({ ok: false, error: result.error });
+    return fn(viaToken);
   } finally {
     lock.releaseLock();
   }
 }
 
-function getAdminRecords(pw) {
-  return withAdminLock_(pw, function () {
+function getAdminRecords(payload) {
+  return withAdminLock_(payload, function (viaToken) {
     const { rows } = readSheetAsObjects(SHEET_LOANS);
     const records = rows.map(r => ({
       row: r.row,
@@ -306,7 +325,14 @@ function getAdminRecords(pw) {
       returnTimeSlot: r['반납신청시간대'] || '',
       paymentConfirmed: r['입금확인'] || 'N',
     }));
-    return jsonOut({ ok: true, records });
+    const result = { ok: true, records };
+    if (!viaToken) {
+      // pw로 방금 새로 로그인한 경우에만 새 토큰을 발급한다(토큰 경로 재조회는 재발급하지 않음).
+      const token = Utilities.getUuid();
+      CacheService.getScriptCache().put(token, '1', ADMIN_TOKEN_TTL_SEC);
+      result.token = token;
+    }
+    return jsonOut(result);
   });
 }
 
@@ -518,7 +544,7 @@ function requestReturn(payload) {
 
 // ── 관리자: 입금 확인 ──
 function adminConfirmPay(payload) {
-  return withAdminLock_(payload.pw, function () {
+  return withAdminLock_(payload, function () {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LOANS);
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
     const col = headers.indexOf('입금확인') + 1;
@@ -529,7 +555,7 @@ function adminConfirmPay(payload) {
 
 // ── 관리자: 반납 완료 처리 ──
 function adminCompleteReturn(payload) {
-  return withAdminLock_(payload.pw, function () {
+  return withAdminLock_(payload, function () {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LOANS);
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
     const col = headers.indexOf('상태') + 1;
