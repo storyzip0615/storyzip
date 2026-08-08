@@ -131,22 +131,23 @@ function cacheRemoveChunked_(key) {
   if (keys.length) cache.removeAll(keys);
 }
 
-// ── 캐시 부활(stale resurrection) 방지 — 세대값 기반 낙관적 동시성 (reviewer-codex R1 HIGH) ──
-// getBooks()/getRecommend()는 캐시 miss 시 시트를 읽고 JSON을 만든 뒤 캐시에 저장한다.
-// 이 read~put 사이에 onBookSheetEdit이 캐시를 지워도, 이미 read를 시작해 옛 데이터를 쥔
-// 요청이 그 뒤에 put하면 방금 지운 캐시가 옛 값으로 되살아나(stale resurrection) 최대
-// 5분간 낡은 데이터가 다시 보일 수 있다. 락 대신 정수 세대값으로 막는다: 편집이 있을
-// 때마다(onBookSheetEdit 맨 앞) 세대를 +1 올리고, read 시작 직전(genBefore)과 put 직전
-// (genAfter)의 세대가 같을 때만 캐시에 쓴다 — 다르면 그 사이 편집이 끼어든 것이므로
-// 캐싱을 포기한다(응답 자체는 그대로 반환, 캐시에만 안 남긴다).
-function bumpCacheGeneration_() {
-  const props = PropertiesService.getScriptProperties();
-  const cur = Number(props.getProperty('CACHE_GEN') || 0);
-  props.setProperty('CACHE_GEN', String(cur + 1));
-}
-
-function getCacheGeneration_() {
-  return Number(PropertiesService.getScriptProperties().getProperty('CACHE_GEN') || 0);
+// ── 시간버킷 캐시 키 (2026-08-08, 오너 결정 · R3) ──
+// 이 방식은 완전한 정합성이 아니라 최대 60~70초의 자연 지연을 받아들이는 단순화다 —
+// reviewer-codex R1/R2에서 세대추적+명시적 무효화 방식에 동시성 결함(HIGH 2건, MEDIUM
+// 1건: 세대 read-modify-write 사이 TOCTOU, 자동채움 중간상태 캐싱, 락 없는 세대증가의
+// lost update)이 반복 발견되어, 이 프로젝트(소규모·저트래픽) 규모에 맞게 오너가
+// 의도적으로 단순한 방식을 선택했다. 만약 실사용 중 캐시 지연이 실제로 문제가 되면,
+// 완전한 수정은 ①캐시 키 자체에 세대를 붙이고(books_cache:<generation>) ②자동채움처럼
+// 파생 쓰기가 있는 편집은 시작과 완료 양쪽에서 세대를 발행하며 ③세대 증가는
+// ScriptLock 또는 UUID로 원자화해야 한다(2026-08-08 reviewer-codex R2 리뷰 참고).
+//
+// 명시적 무효화(캐시 삭제·세대 카운터) 자체를 없애고, 캐시 키에 시간버킷을 섞어 넣는다
+// — 같은 버킷 안의 요청은 캐시를 공유하고, 버킷이 바뀌면(60초마다) 자연스럽게 새로
+// 읽어온다. onBookSheetEdit은 이제 캐시를 전혀 건드리지 않는다(편집 후 최대 60~70초
+// 이내에 반영됨을 감수).
+function cacheBucketKey_(base) {
+  const BUCKET_SEC = 60;
+  return base + ':' + Math.floor(Date.now() / (BUCKET_SEC * 1000));
 }
 
 // ── 공통: 헤더 이름 기준으로 시트를 객체 배열로 읽기 ──
@@ -206,10 +207,10 @@ function truncateDesc_(text, maxLen) {
 
 // ── 도서 목록 ──
 function getBooks() {
-  const cached = cacheGetChunked_('books_cache');
+  const cacheKey = cacheBucketKey_('books_cache');
+  const cached = cacheGetChunked_(cacheKey);
   if (cached) return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
 
-  const genBefore = getCacheGeneration_();
   const { rows } = readSheetAsObjects(SHEET_BOOKS);
   const books = rows
     .filter(r => String(r['제목'] || '').trim())
@@ -223,10 +224,7 @@ function getBooks() {
       description: truncateDesc_(r['소개'], 120),
     }));
   const json = JSON.stringify({ ok: true, books });
-  // read 시작 이후 편집이 끼어들지 않았을 때만(세대 불변) 캐시에 쓴다 — stale resurrection 방지.
-  if (getCacheGeneration_() === genBefore) {
-    cachePutChunked_('books_cache', json, 300);
-  }
+  cachePutChunked_(cacheKey, json, 70); // 버킷(60초)보다 살짝 여유있게 — 버킷 경계 직전 요청도 안전하게 만료
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -295,10 +293,10 @@ function getMyLoans(phone) {
 //   ...: 관리번호    (라벨만)
 //   그 아래: 추천도서 관리번호 목록 (한 줄에 1개씩)
 function getRecommend() {
-  const cached = cacheGetChunked_('recommend_cache');
+  const cacheKey = cacheBucketKey_('recommend_cache');
+  const cached = cacheGetChunked_(cacheKey);
   if (cached) return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
 
-  const genBefore = getCacheGeneration_();
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_RECOMMEND);
   if (!sheet) return jsonOut({ ok: true, month: '', theme: '', posterUrls: [], books: [] });
 
@@ -368,10 +366,7 @@ function getRecommend() {
     posterUrls,
     books,
   });
-  // read 시작 이후 편집이 끼어들지 않았을 때만(세대 불변) 캐시에 쓴다 — stale resurrection 방지.
-  if (getCacheGeneration_() === genBefore) {
-    cachePutChunked_('recommend_cache', json, 300);
-  }
+  cachePutChunked_(cacheKey, json, 70); // 버킷(60초)보다 살짝 여유있게 — 버킷 경계 직전 요청도 안전하게 만료
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -750,22 +745,6 @@ function onBookSheetEdit(e) {
   try {
     const sheet = e.range.getSheet();
     if (sheet.getName() !== SHEET_BOOKS) return;
-
-    // 시트1이 어떤 셀이든 수정되면 목록 캐시를 무효화한다 — 아래 ISBN 자동채움 로직보다
-    // 먼저 실행해, 그 로직이 return으로 건너뛰어지는 경우(ISBN 열이 없거나 이번 편집이
-    // ISBN 열 밖일 때)에도 캐시 무효화는 항상 일어나게 한다. getRecommend()도 시트1의
-    // 제목/저자/소개/표지를 그대로 읽어 쓰므로(추천도서 카드가 같은 데이터를 재사용)
-    // 함께 무효화한다 — 안 그러면 시트1을 고쳐도 추천도서 카드는 최대 5분 동안 옛 값을
-    // 보여주게 된다.
-    // ★세대값도 함께 올린다(bumpCacheGeneration_) — 캐시 삭제만으로는 부족하다. 이미
-    // read를 시작해 옛 데이터를 쥔 요청이 이 삭제 '이후'에 put하면 방금 지운 캐시가
-    // 옛 값으로 되살아날 수 있다(stale resurrection). getBooks()/getRecommend()는 read
-    // 시작 전과 put 직전의 세대값을 비교해서 이 사이 편집이 있었으면 캐싱을 포기하므로,
-    // 세대를 여기서 반드시 함께 올려야 그 검증이 의미를 가진다(reviewer-codex R1 HIGH).
-    cacheRemoveChunked_('books_cache');
-    cacheRemoveChunked_('recommend_cache');
-    bumpCacheGeneration_();
-
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
     const isbnCol = headers.indexOf('ISBN') + 1;
     if (isbnCol === 0) return;
