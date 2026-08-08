@@ -2094,7 +2094,32 @@
   // 초기 렌더링: 카테고리 탭, 정렬 버튼 먼저 표시 → 도서 목록은 실제 시트에서 불러오기
   renderTabs();
   document.getElementById('sortDefault').classList.add('active');
-  document.getElementById('resultsList').innerHTML = '<p class="no-results">도서 목록을 불러오는 중이에요...</p>';
+
+  // stale-while-revalidate: 재방문자는 localStorage에 저장해둔 지난 도서 목록을 먼저
+  // 화면에 그려 "불러오는 중" 대기 없이 바로 훑어볼 수 있게 한다. 대출가능/대출중
+  // 상태(liveStatus)는 아직 최신이 아닐 수 있지만(getStatus()는 liveStatus에 없는
+  // 책을 기본값 '대출 가능'으로 보여준다), 실제 신청은 서버가 최종 검증하므로 짧은
+  // 순간의 부정확은 감수한다. 캐시 유무와 무관하게 아래 loadBooks()는 항상 실행돼
+  // 최신 데이터로 다시 렌더한다("stale"을 보여주면서 동시에 "revalidate"한다).
+  const BOOKS_CACHE_KEY = 'storyzip_books_cache_v1';
+  let renderedFromCache = false;
+  try {
+    const cachedRaw = localStorage.getItem(BOOKS_CACHE_KEY);
+    if (cachedRaw) {
+      const cachedBooks = JSON.parse(cachedRaw);
+      if (Array.isArray(cachedBooks) && cachedBooks.length) {
+        BOOKS = cachedBooks;
+        renderResults();
+        renderedFromCache = true;
+      }
+    }
+  } catch (err) {
+    // localStorage 접근 불가(시크릿 모드·저장공간 비활성화·손상된 JSON 등) — 캐시
+    // 기능만 조용히 포기하고 아래 기존 "불러오는 중" 흐름으로 그대로 폴백한다.
+  }
+  if (!renderedFromCache) {
+    document.getElementById('resultsList').innerHTML = '<p class="no-results">도서 목록을 불러오는 중이에요...</p>';
+  }
 
   loadBooks();
   loadRecommend();
@@ -2175,6 +2200,14 @@
       if (booksData.ok) {
         BOOKS = booksData.books;
         booksLoaded = true;
+        try {
+          // 다음 방문 때 stale-while-revalidate에 쓸 최신 도서 목록을 저장해둔다.
+          // 상태(liveStatus)는 캐시에 포함하지 않는다 — 재방문 시 곧바로 실제 fetch로
+          // 다시 검증되므로 굳이 오래갈 정보를 들고 있을 필요가 없다.
+          localStorage.setItem(BOOKS_CACHE_KEY, JSON.stringify(booksData.books));
+        } catch (err) {
+          // 저장공간 비활성화·quota 초과 등 — 캐싱 기능만 조용히 포기, 사이트 동작에는 영향 없음.
+        }
       } else {
         throw new Error(booksData.error || '알 수 없는 오류');
       }
@@ -2182,8 +2215,12 @@
         liveStatus = statusData.status;
       }
     } catch (err) {
-      document.getElementById('resultsList').innerHTML =
-        '<p class="no-results">도서 목록을 불러오지 못했어요.<br>잠시 후 다시 시도해주세요.</p>';
+      // stale-while-revalidate로 이미 캐시된 목록을 화면에 보여주고 있었다면, 재검증
+      // 실패로 그 화면을 지우지 않는다(완전 실패보다 낡은 데이터라도 보여주는 게 낫다).
+      if (!renderedFromCache) {
+        document.getElementById('resultsList').innerHTML =
+          '<p class="no-results">도서 목록을 불러오지 못했어요.<br>잠시 후 다시 시도해주세요.</p>';
+      }
       return;
     }
     renderResults();
