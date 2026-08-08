@@ -32,6 +32,7 @@ function doGet(e) {
     if (action === 'status') return getStatus();
     if (action === 'myloans') return getMyLoans(e.parameter.phone || '');
     if (action === 'recommend') return getRecommend();
+    if (action === 'bookDetail') return getBookDetail(e.parameter.id || '');
     // 관리자 비밀번호는 GET 쿼리에 남기지 않는다 — doPost의 'admin_records'로만 조회한다.
     return jsonOut({ ok: false, error: '알 수 없는 요청입니다.' });
   } catch (err) {
@@ -64,6 +65,70 @@ function doPost(e) {
 
 function jsonOut(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── 청크 캐싱 (CacheService 키당 값 100KB 제한 우회) ──
+// getBooks() 응답은 583권 규모라 소개글을 120자로 잘라도 100KB를 넘을 수 있어 통짜로는
+// 캐싱할 수 없다. 여러 조각으로 나눠 저장/재조합한다.
+// ★100KB 제한은 JS 문자열 length(문자 수)가 아니라 실제 UTF-8 바이트 기준이다 — 한글은
+// 문자당 최대 3바이트라 문자 수로만 자르면 바이트 기준 한도를 넘을 수 있다. 그래서
+// 문자 수 기준으로 넉넉히 자른 뒤, Utilities.newBlob(...).getBytes().length로 실제
+// 바이트를 재보고 넘으면 잘라낸 조각을 줄여나간다(안전망 — 순수 한글 텍스트라도 절대
+// 100KB를 넘지 않게 보장).
+const CACHE_CHUNK_CHARS = 25000; // 넉넉한 여유를 둔 문자 수 단위(최종 안전판은 바이트 재검증)
+const CACHE_MAX_BYTES = 100 * 1024; // CacheService 값 1개당 한도
+
+function utf8ByteLength_(str) {
+  return Utilities.newBlob(str).getBytes().length;
+}
+
+function cachePutChunked_(key, value, ttlSec) {
+  const chunks = [];
+  let i = 0;
+  while (i < value.length) {
+    let end = Math.min(i + CACHE_CHUNK_CHARS, value.length);
+    let piece = value.slice(i, end);
+    while (utf8ByteLength_(piece) > CACHE_MAX_BYTES) {
+      end = i + Math.floor((end - i) * 0.9);
+      piece = value.slice(i, end);
+    }
+    chunks.push(piece);
+    i = end;
+  }
+  const entries = {};
+  entries[key + ':meta'] = JSON.stringify({ n: chunks.length });
+  chunks.forEach((c, idx) => { entries[key + ':' + idx] = c; });
+  CacheService.getScriptCache().putAll(entries, ttlSec);
+}
+
+function cacheGetChunked_(key) {
+  const cache = CacheService.getScriptCache();
+  const metaRaw = cache.get(key + ':meta');
+  if (!metaRaw) return null;
+  let meta;
+  try { meta = JSON.parse(metaRaw); } catch (err) { return null; }
+  const keys = [];
+  for (let idx = 0; idx < meta.n; idx++) keys.push(key + ':' + idx);
+  const got = keys.length ? cache.getAll(keys) : {};
+  let out = '';
+  for (let idx = 0; idx < meta.n; idx++) {
+    const piece = got[key + ':' + idx];
+    if (piece === undefined || piece === null) return null; // 조각 하나라도 만료됐으면 실패로 취급(부분 조합 방지)
+    out += piece;
+  }
+  return out;
+}
+
+function cacheRemoveChunked_(key) {
+  const cache = CacheService.getScriptCache();
+  const metaRaw = cache.get(key + ':meta');
+  cache.remove(key + ':meta');
+  if (!metaRaw) return;
+  let meta;
+  try { meta = JSON.parse(metaRaw); } catch (err) { return; }
+  const keys = [];
+  for (let idx = 0; idx < meta.n; idx++) keys.push(key + ':' + idx);
+  if (keys.length) cache.removeAll(keys);
 }
 
 // ── 공통: 헤더 이름 기준으로 시트를 객체 배열로 읽기 ──
@@ -104,8 +169,22 @@ function sanitizeImageUrl_(url) {
   return /^https?:\/\/[^\s"'<>]+$/.test(s) ? s : '';
 }
 
+// 목록 화면(.result-desc/.rec-desc)은 CSS -webkit-line-clamp:2로 2줄만 보여주는데,
+// 지금은 583권 전체의 소개 전문(약 194KB, 전체 응답의 58%)을 매번 통째로 내려보내고
+// 있었다. 화면에 어차피 안 보이는 텍스트라 목록 응답에서는 짧게 잘라 보낸다 — 전체
+// 텍스트는 getBookDetail()에서 별도로 지연 로딩한다(평균 소개글 길이 137자 참고, 2줄
+// 클램프는 120자면 넉넉히 채우고도 남는다).
+function truncateDesc_(text, maxLen) {
+  const s = String(text || '');
+  if (s.length <= maxLen) return s;
+  return s.slice(0, maxLen) + '…';
+}
+
 // ── 도서 목록 ──
 function getBooks() {
+  const cached = cacheGetChunked_('books_cache');
+  if (cached) return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
+
   const { rows } = readSheetAsObjects(SHEET_BOOKS);
   const books = rows
     .filter(r => String(r['제목'] || '').trim())
@@ -116,9 +195,31 @@ function getBooks() {
       cat: String(r['장르'] || ''),
       isbn: String(r['ISBN'] || ''),
       coverUrl: sanitizeImageUrl_(r['표지URL']),
-      description: String(r['소개'] || ''),
+      description: truncateDesc_(r['소개'], 120),
     }));
-  return jsonOut({ ok: true, books });
+  const json = JSON.stringify({ ok: true, books });
+  cachePutChunked_('books_cache', json, 300);
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── 도서 상세(전체 소개글) — 목록에서 잘린 소개글을 상세보기 모달에서만 온전히 보여준다 ──
+function getBookDetail(id) {
+  const idStr = String(id || '').trim();
+  if (!idStr) return jsonOut({ ok: false, error: '잘못된 요청입니다.' });
+  const { rows } = readSheetAsObjects(SHEET_BOOKS);
+  const r = rows.find(row => String(row['구분']) === idStr);
+  if (!r) return jsonOut({ ok: false, error: '해당 도서를 찾을 수 없습니다.' });
+  return jsonOut({
+    ok: true,
+    book: {
+      id: String(r['구분']),
+      title: String(r['제목'] || ''),
+      author: String(r['저자'] || ''),
+      cat: String(r['장르'] || ''),
+      coverUrl: sanitizeImageUrl_(r['표지URL']),
+      description: String(r['소개'] || ''),
+    },
+  });
 }
 
 // ── 대출 상태 (대여중/반납신청인 책의 반납예정일) ──
@@ -166,6 +267,9 @@ function getMyLoans(phone) {
 //   ...: 관리번호    (라벨만)
 //   그 아래: 추천도서 관리번호 목록 (한 줄에 1개씩)
 function getRecommend() {
+  const cached = cacheGetChunked_('recommend_cache');
+  if (cached) return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
+
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_RECOMMEND);
   if (!sheet) return jsonOut({ ok: true, month: '', theme: '', posterUrls: [], books: [] });
 
@@ -228,13 +332,15 @@ function getRecommend() {
       description: String(r['소개'] || ''),
     }));
 
-  return jsonOut({
+  const json = JSON.stringify({
     ok: true,
     month: meta.month || '',
     theme: meta.theme || '',
     posterUrls,
     books,
   });
+  cachePutChunked_('recommend_cache', json, 300);
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }
 
 // ── 관리자 인증 ──
@@ -612,6 +718,16 @@ function onBookSheetEdit(e) {
   try {
     const sheet = e.range.getSheet();
     if (sheet.getName() !== SHEET_BOOKS) return;
+
+    // 시트1이 어떤 셀이든 수정되면 목록 캐시를 무효화한다 — 아래 ISBN 자동채움 로직보다
+    // 먼저 실행해, 그 로직이 return으로 건너뛰어지는 경우(ISBN 열이 없거나 이번 편집이
+    // ISBN 열 밖일 때)에도 캐시 무효화는 항상 일어나게 한다. getRecommend()도 시트1의
+    // 제목/저자/소개/표지를 그대로 읽어 쓰므로(추천도서 카드가 같은 데이터를 재사용)
+    // 함께 무효화한다 — 안 그러면 시트1을 고쳐도 추천도서 카드는 최대 5분 동안 옛 값을
+    // 보여주게 된다.
+    cacheRemoveChunked_('books_cache');
+    cacheRemoveChunked_('recommend_cache');
+
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
     const isbnCol = headers.indexOf('ISBN') + 1;
     if (isbnCol === 0) return;
