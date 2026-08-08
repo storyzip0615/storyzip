@@ -292,13 +292,19 @@ function adminAuthCheckToken_(token) {
 // 있으면 adminAuthCheckToken_(카운터 미접촉)로, 없으면 adminAuthCheck(pw)(카운터 접촉)로
 // 검증한다. fn은 (viaToken) 하나를 받는다 — viaToken=false면 방금 pw로 새로 로그인한
 // 것이므로 호출부가 새 토큰을 발급해도 된다는 신호다.
+// ★분기는 반드시 '필드 존재 여부'로 한다 — '값이 truthy한가'로 하지 않는다. token 필드가
+// payload에 있으면(null·빈문자열이라도) 무조건 token 경로로 보내 무효 토큰은 그 안에서
+// 거절한다(카운터 미접촉 유지). token이 없고 값이 falsy(예: '' )라서 truthiness로 분기하면
+// pw 경로로 새어 들어가 ADMIN_FAIL_COUNT/ADMIN_LOCK_UNTIL을 건드리게 된다 — 토큰 만료는
+// 무차별 대입이 아니므로 이 오염은 반드시 막아야 한다(reviewer-codex R1 REVISE 지적사항,
+// 이 프로젝트에서 실수로 5분 잠금을 두 번 유발한 전례와 같은 실패모드).
 function withAdminLock_(auth, fn) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) {
     return jsonOut({ ok: false, error: '지금 요청이 몰리고 있어요. 잠시 후 다시 시도해주세요.' });
   }
   try {
-    const viaToken = !!(auth && auth.token);
+    const viaToken = !!(auth && Object.prototype.hasOwnProperty.call(auth, 'token'));
     const result = viaToken ? adminAuthCheckToken_(auth.token) : adminAuthCheck(auth && auth.pw);
     if (!result.ok) return jsonOut({ ok: false, error: result.error });
     return fn(viaToken);

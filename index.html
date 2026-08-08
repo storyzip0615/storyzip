@@ -1818,6 +1818,12 @@
         alert(data.error || '비밀번호가 올바르지 않아요.');
         return;
       }
+      // 서버가 토큰을 내려주지 않았거나 빈 문자열이면 로그인으로 인정하지 않는다 —
+      // 빈 토큰을 저장해버리면 이후 요청이 인증 없이 오작동할 수 있다.
+      if (typeof data.token !== 'string' || data.token.length === 0) {
+        alert('로그인에 실패했어요. 다시 시도해주세요.');
+        return;
+      }
       adminToken = data.token;
       adminRecords = data.records;
       document.getElementById('adminPwModal').style.display = 'none';
