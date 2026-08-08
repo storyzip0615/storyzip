@@ -119,20 +119,8 @@ function cacheGetChunked_(key) {
   return out;
 }
 
-function cacheRemoveChunked_(key) {
-  const cache = CacheService.getScriptCache();
-  const metaRaw = cache.get(key + ':meta');
-  cache.remove(key + ':meta');
-  if (!metaRaw) return;
-  let meta;
-  try { meta = JSON.parse(metaRaw); } catch (err) { return; }
-  const keys = [];
-  for (let idx = 0; idx < meta.n; idx++) keys.push(key + ':' + idx);
-  if (keys.length) cache.removeAll(keys);
-}
-
 // ── 시간버킷 캐시 키 (2026-08-08, 오너 결정 · R3) ──
-// 이 방식은 완전한 정합성이 아니라 최대 60~70초의 자연 지연을 받아들이는 단순화다 —
+// 이 방식은 완전한 정합성이 아니라 짧은 자연 지연을 받아들이는 단순화다 —
 // reviewer-codex R1/R2에서 세대추적+명시적 무효화 방식에 동시성 결함(HIGH 2건, MEDIUM
 // 1건: 세대 read-modify-write 사이 TOCTOU, 자동채움 중간상태 캐싱, 락 없는 세대증가의
 // lost update)이 반복 발견되어, 이 프로젝트(소규모·저트래픽) 규모에 맞게 오너가
@@ -142,9 +130,12 @@ function cacheRemoveChunked_(key) {
 // ScriptLock 또는 UUID로 원자화해야 한다(2026-08-08 reviewer-codex R2 리뷰 참고).
 //
 // 명시적 무효화(캐시 삭제·세대 카운터) 자체를 없애고, 캐시 키에 시간버킷을 섞어 넣는다
-// — 같은 버킷 안의 요청은 캐시를 공유하고, 버킷이 바뀌면(60초마다) 자연스럽게 새로
-// 읽어온다. onBookSheetEdit은 이제 캐시를 전혀 건드리지 않는다(편집 후 최대 60~70초
-// 이내에 반영됨을 감수).
+// — 같은 버킷 안의 요청은 캐시를 공유하고, 버킷이 바뀌면(60초마다) 새 키를 쓰므로 옛
+// 버킷 값은 절대 조회되지 않는다(가시 stale은 버킷 잔여시간 미만 — 60초 미만). TTL
+// 70초는 옛 키가 물리적으로 살아있는 시간일 뿐 가시성을 늘리지 않는다 — 폐기 여유일
+// 뿐이다. onBookSheetEdit은 캐시를 전혀 건드리지 않는다(각 시트 쓰기 완료 후 최대
+// 60초 이내 반영 — 자동채움의 외부 API 처리시간 자체는 이 상한에 포함되지 않는다).
+// (reviewer-codex R3 ACCEPT — 미사용 cacheRemoveChunked_ 삭제 및 이 문구 정교화 반영)
 function cacheBucketKey_(base) {
   const BUCKET_SEC = 60;
   return base + ':' + Math.floor(Date.now() / (BUCKET_SEC * 1000));
