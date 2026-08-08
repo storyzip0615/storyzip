@@ -1,0 +1,2161 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>스토리집 - 도서 검색</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ivory: #F8F4EC;
+    --card: #FFFFFF;
+    --wood: #8B5A2E;
+    --wood-dark: #4A3220;
+    --text: #3A2E22;
+    --text-soft: #7D7061;
+    --line: #E4DAC7;
+    --available-bg: #EEF1E6;
+    --available-text: #56682F;
+    --unavailable-bg: #F3E8E1;
+    --unavailable-text: #93542F;
+    --overdue-bg: #F5DCD6;
+    --overdue-text: #A8402A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ivory);
+    color: var(--text);
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 16px;
+    padding: 0 0 4rem;
+    scrollbar-color: #C9AE84 var(--ivory);
+    scrollbar-width: thin;
+  }
+  body::-webkit-scrollbar { width: 10px; }
+  body::-webkit-scrollbar-track { background: var(--ivory); }
+  body::-webkit-scrollbar-thumb { background: #C9AE84; border-radius: 5px; }
+  body::-webkit-scrollbar-thumb:hover { background: #B8996E; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
+
+  .topbar {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--line);
+    max-width: 920px;
+    margin: 0 auto;
+  }
+  .topbar-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .logo-inline { display: flex; align-items: center; flex-shrink: 0; }
+  .logo-mark { height: 26px; width: auto; }
+  .top-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .top-actions button {
+    font-size: 12.5px;
+    padding: 7px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--wood);
+    background: transparent;
+    color: var(--wood-dark);
+    cursor: pointer;
+    font-family: 'Noto Sans KR', sans-serif;
+    white-space: nowrap;
+  }
+  .brand {
+    font-family: 'Noto Serif KR', serif;
+    font-weight: 500;
+    font-size: 16px;
+    letter-spacing: 1px;
+    margin: 0;
+    color: var(--wood-dark);
+    white-space: nowrap;
+  }
+
+  .search-combo {
+    width: 100%;
+    max-width: 320px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: stretch;
+    border: 1.5px solid var(--wood);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--card);
+  }
+  .search-combo select {
+    border: none;
+    background: var(--ivory);
+    color: var(--wood-dark);
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 0 34px 0 16px;
+    border-right: 1px solid var(--line);
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%234A3220' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+  }
+  .search-combo input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    padding: 12px 12px;
+    font-size: 15px;
+    color: var(--text);
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .search-combo input:focus, .search-combo select:focus { outline: none; }
+  .search-combo button {
+    border: none;
+    background: var(--wood);
+    color: var(--card);
+    padding: 0 24px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+
+  section { padding: 32px 0 4px; }
+  h2.section-title {
+    font-family: 'Noto Serif KR', serif;
+    font-size: 21px;
+    font-weight: 500;
+    margin: 0 0 4px;
+    color: var(--wood-dark);
+  }
+  p.section-sub {
+    color: var(--text-soft);
+    font-size: 14px;
+    margin: 0 0 20px;
+  }
+
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .tab {
+    font-size: 13px;
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    color: var(--text-soft);
+    background: var(--card);
+    cursor: pointer;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .tab.active { background: var(--wood); color: var(--card); border-color: var(--wood); }
+
+  .sort-row { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  .sort-label { font-size: 12.5px; color: var(--text-soft); margin-right: 2px; }
+  .sort-btn {
+    font-size: 12.5px;
+    padding: 6px 12px;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: none;
+    color: var(--text-soft);
+    cursor: pointer;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .sort-btn.active { background: var(--wood-dark); color: var(--card); border-color: var(--wood-dark); }
+
+  .result-count { font-size: 12.5px; color: var(--text-soft); margin: 0 0 4px; }
+  .no-results {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-soft);
+    font-size: 15px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+
+  .pagination {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 20px 0 4px;
+  }
+  .page-btn {
+    min-width: 32px;
+    height: 32px;
+    padding: 0 6px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--text-soft);
+    font-size: 13px;
+    cursor: pointer;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .page-btn.active { background: var(--wood-dark); color: var(--card); border-color: var(--wood-dark); }
+  .page-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .page-dots { color: var(--text-soft); font-size: 13px; padding: 0 2px; align-self: center; }
+
+  .login-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--wood) !important;
+    color: var(--card) !important;
+    border-color: var(--wood) !important;
+  }
+
+  .mypage-summary {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .summary-chip {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 16px;
+    flex: 1;
+    min-width: 120px;
+  }
+  .summary-chip .chip-label { font-size: 12px; color: var(--text-soft); margin: 0 0 4px; }
+  .summary-chip .chip-value { font-size: 18px; font-weight: 700; color: var(--wood-dark); margin: 0; }
+  .summary-chip.warn .chip-value { color: var(--overdue-text); }
+
+  .loan-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+  }
+  .loan-card.is-overdue { border-color: #E0B3A6; background: #FDF7F4; }
+  .loan-card.is-requested { opacity: 0.75; }
+  .loan-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .loan-title { font-size: 16px; font-weight: 500; margin: 0 0 3px; color: var(--text); }
+  .loan-author { font-size: 13px; color: var(--text-soft); margin: 0 0 10px; }
+  .loan-dates { font-size: 13px; line-height: 1.8; color: var(--text); margin: 0; }
+  .loan-dates .lbl { color: var(--text-soft); display: inline-block; min-width: 76px; }
+  .loan-fee {
+    margin-top: 10px;
+    background: var(--overdue-bg);
+    color: var(--overdue-text);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .return-btn {
+    background: var(--wood-dark);
+    color: var(--card);
+    border: none;
+    border-radius: 20px;
+    padding: 9px 16px;
+    font-size: 13px;
+    font-family: 'Noto Sans KR', sans-serif;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .return-btn:disabled { background: #DFD5C3; color: #8C8172; cursor: default; }
+  .requested-tag {
+    font-size: 12px;
+    background: #E8EDE2;
+    color: var(--available-text);
+    border-radius: 14px;
+    padding: 6px 12px;
+    white-space: nowrap;
+  }
+  .pill-sub { font-size: 11px; opacity: 0.8; }
+  .mypage-subtitle {
+    font-family: 'Noto Serif KR', serif;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--wood-dark);
+    margin: 32px 0 14px;
+  }
+  .empty-loans {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-soft);
+    font-size: 15px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .fee-notice {
+    background: var(--overdue-bg);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-top: 14px;
+    font-size: 13.5px;
+    line-height: 1.7;
+    color: var(--overdue-text);
+  }
+  .fee-notice .fee-amount { font-size: 17px; font-weight: 700; }
+  .fee-account { font-size: 13px; color: var(--wood-dark); margin-top: 6px; }
+  #returnDate {
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-family: 'Noto Sans KR', sans-serif;
+    color: var(--text);
+    background: var(--card);
+  }
+
+  .admin-link {
+    font-size: 11.5px;
+    color: var(--text-soft);
+    cursor: pointer;
+    padding: 7px 4px;
+    text-decoration: underline;
+  }
+
+  .admin-summary {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .admin-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 16px; }
+  .admin-tab {
+    font-size: 13px;
+    padding: 8px 14px;
+    border-radius: 18px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--text-soft);
+    cursor: pointer;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .admin-tab.active { background: var(--wood-dark); color: var(--card); border-color: var(--wood-dark); }
+
+  .admin-row {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .admin-row.flag { border-color: #E0B3A6; background: #FDF7F4; }
+  .admin-row-top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .admin-row-title { font-size: 15px; font-weight: 500; margin: 0 0 2px; color: var(--text); }
+  .admin-row-meta { font-size: 12.5px; color: var(--text-soft); margin: 0; }
+  .admin-row-info { font-size: 12.5px; color: var(--text); margin: 8px 0 0; line-height: 1.7; }
+  .admin-row-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .admin-btn {
+    font-size: 12.5px;
+    padding: 7px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--wood);
+    background: var(--card);
+    color: var(--wood-dark);
+    cursor: pointer;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .admin-btn.primary { background: var(--wood-dark); color: var(--card); border-color: var(--wood-dark); }
+  .admin-btn.copy { border-color: var(--line); color: var(--text-soft); }
+
+  .result-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 18px 6px;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+  }
+  .result-left { display: flex; gap: 12px; align-items: flex-start; }
+  .result-cover {
+    width: 44px; height: 62px;
+    background: linear-gradient(160deg, #EFE6D4, #E1D3B6);
+    border-radius: 4px;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .result-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .result-title { font-size: 16px; font-weight: 500; margin: 0 0 4px; color: var(--text); }
+  .result-meta { font-size: 13px; color: var(--text-soft); margin: 0; }
+  .result-desc {
+    font-size: 12.5px;
+    color: var(--text-soft);
+    margin: 4px 0 0;
+    max-width: 46ch;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .result-right { text-align: right; }
+  .status {
+    display: inline-block;
+    font-size: 12.5px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    white-space: nowrap;
+    margin-bottom: 4px;
+  }
+  .status.available { background: var(--available-bg); color: var(--available-text); }
+  .status.unavailable { background: var(--unavailable-bg); color: var(--unavailable-text); }
+  .status.overdue { background: var(--overdue-bg); color: var(--overdue-text); }
+  .due-note { font-size: 12px; color: var(--text-soft); margin: 0; }
+
+  .poster-gallery {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    justify-content: center;
+    margin: 4px 0 20px;
+    padding: 0 4px 4px;
+  }
+  .poster-banner {
+    width: 100%;
+    max-width: 280px;
+    flex: 0 0 auto;
+    display: block;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+  }
+  .rec-scroll {
+    display: flex;
+    gap: 14px;
+    overflow-x: auto;
+    padding: 4px 4px 16px;
+    scrollbar-color: #C9AE84 #EFE6D4;
+    scrollbar-width: thin;
+  }
+  .rec-scroll::-webkit-scrollbar { height: 8px; }
+  .rec-scroll::-webkit-scrollbar-track { background: #EFE6D4; border-radius: 4px; }
+  .rec-scroll::-webkit-scrollbar-thumb { background: #C9AE84; border-radius: 4px; }
+  .rec-scroll::-webkit-scrollbar-thumb:hover { background: #B8996E; }
+  .rec-card {
+    position: relative;
+    flex: 0 0 148px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 12px 16px;
+    cursor: pointer;
+  }
+  .rec-card.is-selected { background: #FBF6EC; border-color: var(--wood); }
+  .rec-check {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+  }
+  .rec-month { font-size: 11px; color: var(--wood); letter-spacing: 1px; margin-bottom: 8px; }
+  .rec-cover {
+    width: 100%; height: 108px;
+    background: linear-gradient(160deg, #EFE6D4, #E1D3B6);
+    border-radius: 4px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .rec-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .rec-title { font-size: 14px; font-weight: 500; line-height: 1.4; margin: 0 0 4px; color: var(--text); }
+  .rec-author { font-size: 12px; color: var(--text-soft); margin: 0; }
+  .rec-desc {
+    font-size: 11.5px;
+    color: var(--text-soft);
+    margin: 4px 0 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .rec-note {
+    font-size: 14px;
+    color: var(--text-soft);
+    margin: 4px 4px 0;
+  }
+
+  .pick-checkbox {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--wood-dark);
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+  .pick-checkbox:disabled { cursor: not-allowed; opacity: 0.35; }
+  .result-row.is-selected {
+    background: #FBF6EC;
+    margin: 0 -10px;
+    padding: 18px 16px;
+    border-radius: 8px;
+  }
+
+  .cart-bar {
+    position: sticky;
+    bottom: 12px;
+    margin-top: 8px;
+    background: var(--wood-dark);
+    color: var(--card);
+    border-radius: 24px;
+    padding: 10px 10px 10px 20px;
+    font-size: 13.5px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    width: fit-content;
+    max-width: 100%;
+  }
+  #cartCount { white-space: nowrap; flex-shrink: 0; }
+  #cartLimitNote { color: #D9CBB8; }
+  .apply-btn {
+    background: var(--card);
+    color: var(--wood-dark);
+    border: none;
+    border-radius: 18px;
+    padding: 9px 20px;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: 'Noto Sans KR', sans-serif;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .apply-btn:disabled {
+    background: rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.5);
+    cursor: not-allowed;
+  }
+
+  .form-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 24px;
+  }
+  .form-row { margin-bottom: 18px; }
+  .form-row label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--wood-dark);
+    margin-bottom: 8px;
+  }
+  .form-row input[type=text] {
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .picked-book {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background: var(--ivory);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+  }
+  .picked-book:last-child { margin-bottom: 0; }
+  .empty-pick {
+    font-size: 13.5px;
+    color: var(--text-soft);
+    background: var(--ivory);
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    padding: 14px;
+    margin: 0;
+    text-align: center;
+  }
+  .picked-cover {
+    width: 36px; height: 50px;
+    background: linear-gradient(160deg, #EFE6D4, #E1D3B6);
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .picked-title { font-size: 15px; font-weight: 500; margin: 0 0 2px; color: var(--text); }
+  .picked-meta { font-size: 12.5px; color: var(--text-soft); margin: 0; }
+
+  .radio-group { display: flex; gap: 10px; }
+  .radio-pill {
+    flex: 1;
+    text-align: center;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 15px;
+    color: var(--text-soft);
+  }
+  .radio-pill.selected { background: var(--wood); color: var(--card); border-color: var(--wood); font-weight: 500; }
+
+  .price-box {
+    background: #EFEAE0;
+    border-radius: 10px;
+    padding: 18px 20px;
+    font-size: 15px;
+    line-height: 1.7;
+    margin-bottom: 18px;
+  }
+  .price-box b { color: var(--wood-dark); }
+  .price-box .price-note {
+    margin: 10px 0 0;
+    font-size: 12.5px;
+    color: var(--text-soft);
+    line-height: 1.6;
+  }
+
+  .pay-box {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    background: var(--ivory);
+    border: 1px dashed var(--wood);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .qr-placeholder {
+    width: 76px; height: 76px;
+    background: repeating-conic-gradient(#4A3220 0% 25%, #F8F4EC 0% 50%) 0 0/16px 16px;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+  .pay-info p { margin: 0 0 4px; font-size: 14px; }
+  .pay-info .account { font-weight: 700; color: var(--wood-dark); font-size: 16px; }
+  .pay-hint { font-size: 12.5px; color: var(--wood); margin-top: 6px !important; }
+
+  .purchase-note {
+    background: var(--ivory);
+    border: 1px dashed var(--wood);
+    border-radius: 10px;
+    padding: 18px 20px;
+    text-align: center;
+  }
+  .book-back-illust { width: 120px; height: auto; margin-bottom: 10px; }
+  .purchase-text { font-size: 14px; line-height: 1.7; margin: 0; color: var(--text); }
+
+  .submit-btn {
+    width: 100%;
+    margin-top: 20px;
+    padding: 16px;
+    background: var(--wood-dark);
+    color: var(--card);
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .privacy-note {
+    margin-top: 40px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 22px;
+    font-size: 13px;
+    color: var(--text-soft);
+    line-height: 1.7;
+  }
+  .privacy-note h3 {
+    font-size: 13px;
+    color: var(--wood-dark);
+    margin: 0 0 8px;
+    font-weight: 700;
+  }
+
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(58, 46, 34, 0.45);
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 100;
+  }
+  .modal-box {
+    background: var(--ivory);
+    border-radius: 14px;
+    max-width: 400px;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+    scrollbar-color: #C9AE84 var(--ivory);
+    scrollbar-width: thin;
+  }
+  .modal-box::-webkit-scrollbar { width: 8px; }
+  .modal-box::-webkit-scrollbar-track { background: var(--ivory); }
+  .modal-box::-webkit-scrollbar-thumb { background: #C9AE84; border-radius: 4px; }
+  .modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: var(--ivory);
+  }
+  .modal-head h3 {
+    font-family: 'Noto Serif KR', serif;
+    font-size: 17px;
+    color: var(--wood-dark);
+    margin: 0;
+  }
+  .modal-close {
+    border: none;
+    background: none;
+    font-size: 16px;
+    color: var(--text-soft);
+    cursor: pointer;
+    padding: 4px;
+  }
+  .modal-body { padding: 20px 22px 26px; }
+  .book-detail-cover { text-align: center; margin-bottom: 14px; }
+  .book-detail-cover img {
+    max-width: 160px;
+    max-height: 220px;
+    border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(58, 46, 34, 0.18);
+  }
+  .book-detail-title { font-size: 19px; font-weight: 500; margin: 0 0 6px; color: var(--text); font-family: 'Noto Serif KR', serif; }
+  .book-detail-meta { font-size: 13.5px; color: var(--text-soft); margin: 0 0 16px; }
+  .book-detail-desc { font-size: 14.5px; line-height: 1.8; color: var(--text); white-space: pre-line; }
+  .guide-block { }
+  .guide-item {
+    font-size: 14px;
+    line-height: 1.8;
+    margin: 0 0 6px;
+    color: var(--text);
+  }
+  .guide-item b { color: var(--wood-dark); }
+  .guide-divider {
+    height: 1px;
+    background: var(--line);
+    margin: 16px 0;
+  }
+  .guide-subtitle {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--wood-dark);
+    margin: 0 0 10px;
+  }
+  .guide-list {
+    margin: 0;
+    padding-left: 18px;
+  }
+  .guide-list li {
+    font-size: 13.5px;
+    line-height: 1.9;
+    color: var(--text);
+  }
+  .guide-footnote {
+    font-size: 12.5px;
+    line-height: 1.8;
+    color: var(--text-soft);
+    margin: 0;
+  }
+
+  .insta-icon {
+    width: 26px; height: 26px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .insta-btn-full {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+    background: var(--wood-dark);
+    color: var(--card);
+    text-decoration: none;
+    font-size: 13.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    padding: 14px 16px;
+    border-radius: 8px;
+  }
+  .dm-highlight {
+    background: #FBF1DD;
+    border: 1px solid #E3C98A;
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 13.5px;
+    line-height: 1.7;
+    color: var(--wood-dark);
+    margin: 8px 0 16px;
+  }
+  .dm-highlight b { font-weight: 700; }
+  .guide-list.numbered {
+    list-style: decimal;
+    padding-left: 20px;
+    margin: 0 0 4px;
+  }
+  .guide-list.numbered li {
+    font-size: 13.5px;
+    line-height: 1.9;
+    color: var(--text);
+    margin-bottom: 10px;
+  }
+  .donate-account {
+    font-size: 12.5px;
+    color: var(--text-soft);
+  }
+  #applySection { scroll-margin-top: 16px; }
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: none;
+    border: none;
+    color: var(--wood-dark);
+    font-size: 15px;
+    font-weight: 500;
+    font-family: 'Noto Sans KR', sans-serif;
+    cursor: pointer;
+    padding: 4px 0;
+    margin: 24px 0 28px;
+  }
+  /* ── 모바일 화면 대응 (화면 폭 600px 이하) ── */
+  @media (max-width: 600px) {
+    body { font-size: 15px; }
+    .wrap { padding: 0 16px; }
+    .topbar { padding: 14px 16px; gap: 10px; }
+    .logo-mark { height: 22px; }
+    .top-actions { gap: 6px; }
+    .top-actions button { font-size: 11.5px; padding: 6px 10px; }
+    .admin-link { font-size: 10.5px; padding: 6px 2px; }
+
+    h2.section-title { font-size: 19px; }
+    p.section-sub { font-size: 13px; }
+
+    .search-combo { max-width: 100%; }
+    .search-combo input { font-size: 15px; padding: 12px 12px; }
+    .search-combo button { padding: 0 18px; font-size: 14px; }
+
+    .tab { font-size: 12.5px; padding: 7px 13px; }
+    .sort-btn { font-size: 12px; padding: 6px 11px; }
+
+    .result-row { padding: 14px 2px; gap: 10px; }
+    .result-cover { width: 38px; height: 54px; }
+    .result-title { font-size: 14.5px; }
+    .result-meta { font-size: 12px; }
+    .status { font-size: 11.5px; padding: 5px 10px; }
+    .due-note { font-size: 11px; }
+
+    /* 하단 선택 바: 세로로 쌓아서 글자가 쪼개지지 않게 */
+    .cart-bar {
+      width: 100%;
+      border-radius: 16px;
+      padding: 12px 14px;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 12.5px;
+    }
+    #cartLimitNote { font-size: 11.5px; }
+    .apply-btn { margin-left: auto; padding: 8px 18px; font-size: 13.5px; }
+
+    .poster-banner { max-width: 100%; }
+    .rec-card { flex: 0 0 132px; }
+    .rec-title { font-size: 13px; }
+
+    .form-card { padding: 18px 16px; }
+    .form-row input[type=text], #returnDate { font-size: 15px; padding: 12px 14px; }
+    .radio-pill { font-size: 14px; padding: 12px 8px; }
+    .price-box, .purchase-note { padding: 14px 16px; font-size: 13.5px; }
+    .pay-box { flex-direction: column; align-items: flex-start; gap: 12px; }
+    .pay-info .account { font-size: 15px; }
+
+    .summary-chip { padding: 10px 12px; min-width: 100px; }
+    .summary-chip .chip-value { font-size: 16px; }
+    .loan-card { padding: 14px 15px; }
+    .loan-top { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .return-btn { width: 100%; }
+
+    .admin-tab { font-size: 12px; padding: 7px 12px; }
+    .admin-row-actions .admin-btn { flex: 1 1 auto; }
+
+    .modal-box { max-height: 88vh; }
+    .modal-body { padding: 18px 16px 22px; }
+    .guide-item, .guide-list li, .guide-list.numbered li { font-size: 13px; }
+
+    .book-detail-cover img { max-width: 130px; max-height: 180px; }
+    .book-detail-title { font-size: 17px; }
+    .book-detail-meta { font-size: 12.5px; }
+    .book-detail-desc { font-size: 13.5px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-row">
+    <div class="logo-inline">
+      <img class="logo-mark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAhkAAACVCAYAAAD19+gBAAAOV0lEQVR4nO3dMXbbSBaF4as5k1s7ML0Ca4JGanoFrc6Qic4aUXNWYGoFQ0cITUWNbOwVNJUiGXoFQ61gqBVogiq2aDclESReVQH4v3N07HZTxKNkC5dV9arOHh4eNCRVkU0kjSTN87LeRC0GAIAeOxtKyKiKbCxpIem1/6N7SdO8rBeRSgIAoNd6HzJ8uJhJevfEQ+7kwsaXQCUBADAIvQ0ZVZGN5MLF1YGfcitplpf10qgkAAAGpXchoyqyc7lw8duRT/FVbmRj3VJJAAAMUm9Chg8XU//xqoWnvJELG5sWngsAgMHpRcjwHSMzPS7qbMu9pLnoRAEAoLFOh4w9HSNW6EQBAKChToaMAzpGrNCJAgDAgToVMo7oGLFCJwoAAC/oRMhooWPECp0oAAA8IemQYdAxYoVOFAAAfpBsyDDsGLFCJwoAADuSCxkBO0as0IkCAIASChkRO0as0IkCABi06CEjoY4RK3SiAAAGKVrISLhjxAqdKACAQQkeMjrUMWKFThQAwCAEDRmJdIzcSVor7toPOlEAAL0XJGQk0jFyJ7c2YiH9WdNc0tt4JelerqZ5xBoAADBhGjIS6Rh5dtQgodGVGW2vAIA+MQkZCXWMfJK7eW9eemBVZDPFXydCJwoAoDdaDRkJdYzcyN2s100+aWdR6sf2S2rkVtKEThQAQJe1EjIS6hhpZSQgoZGYo8ISAAApODlkJLSmYdL2NENVZBdy6zmSXVMCAECqjg4ZiXSMBDknhE4UAACaaxwyutAxYiWhURs6UQAAyTs4ZCS2TiHqjpl0ogAA8LIXQ0ZCHSNJnf1BJwoAAM97MmT0rWPESmIjPHSiAACSsTdkJLT2YJqX9ZeINRyMThQAAL73XcgYUseIFTpRAABwzh4eHgbdMWIlodEgOlEAAFGc/f7rTwulsZ4gaseIFTpRAABDdfb7rz8tFW8EI6mOESt0ovTLzmLfkQhvAPCkWCFjkO+s6UTptmfCIl9PANgjdMjoVMeIlUQ6Ud4PLeSd4sBpr09yYWMToKRgdv6+oplFG+uhqiJbKu7PCmuNfxb5dYR/NPiU67ysZ02u4a/T3jHlCcrL+qzp5/ifhQePyv+96QWO1OmOkbblZb2SNI7YiXJLwDhMwwW8v0maVEU2V08WMHvn6vdNzsoydgFAbH8zfv57SdeSRgSMv8rLepmX9YWkD3KjPKHMAl6rk6oiG1dFtpL0Wc06hF7JpfyVDygAMFiWIxm97Rhpmw9gi0CdKDeMYjytxams15I+++/phK85gCGyGMn4KulNXtYTAkYzfs5wJDf6Y2Vm+NydVRXZqCqyhaT/qN2pgdeS/qiKbOmnxwBgMNocyRhkx0jbfDCb+RveTO12olzTAfG9gO3F7+TCBp0oAAajjZGMO0m/5GU9JmC0Jy/rdV7WE0lv5ALcqbY7qsLzUxlrhd2/5ErSf6sim/uAAwC9depIxo2/EcKIf8e77USZ6fih/D51O5wkkS3f+9qJAgB/OnUkY91GEXiZ70QZ67hOlLtjesT75oSOESt0ogDoNesWVrQsL+tFXtYjSf+UmwI5xMysoA6oiuzCb2j0h+KejvuUbSfKmsWhAPqEkNFR/hj3kVwnynNh49tQ9ygx7BixQicKgF4JteMnDBzYiTINV1EaAnWM3MpNF1qcQ7PtROnqAYI3khaxi0jAuqXnWbX0PKGcK80Rw8aO2Xb7JVWRXcotwj90yvab3M+BZdu1hEDI6AF/E5r4bomFHt+1D2778AAbmn13/s5OwLMYKflZ0s++7bVLG9uth/b3zlJe1tPYNTRxxLkig3DC4v23cm86buV+DqzarcwWIaNH9nSiTCOWE1SAjpG95+/4m+n2a74wuv6VpEs6UYDu8advz+XeNJzinaT/dG2vHUJGD21vfJHLCML45i497i/y7M3df81HhmFn24kyrYqMwwaBxPlp27nan1K9knRVFdm1OvCmg4Wf6CTfjrqUG5a1Chg3cof7HXx8u7/5X+jlBbnHeqXHTpRLg+cHcIKqyM53NvqzWLO19VHS2l8rWYxkoFP80ONMtv94T1pwubMgdy5X629tFbbjtaR/+3latvMHEuBHMueyPeRy1ytJH7cjqCmOcBIy0Al+6HEmmxv2Vqs3bB82pjthg04UoIeO6Bhp23avnakS60QhZCBpO+2oUwXqGGnbTvfPQnSiAL3RwnEPbUuuE4WQgWTF6hixQicK0A8tdoxYSaYThZCBJPnFTFabaR3UMWIlYCfKWHG6jCbsWCpJWqQ4R47jGXaMWIneiULIwNAkM52Ql/WiKrIvsp8OCu210jiALrZl7ALQjoDTtpLNv51t+/s89GGZtLBiKL5KepOX9SSFgLGVl/XG/6MfSfoUtxoAP/Ijjmu5G7VFwLiT9CEv65E//PKD7NrfP/r294nB8+9FyEDf3Up6n5f1ZcqdFz5sTCW9kRttARBZVWRrSZ9lEy7uJV37cLHY/qH//Uh2e+1sO1FWBs/9F4QM9NWdpF/ysh6n1M71krys13lZTyS9lwtIAOKxmva7lt/ob9///GGE0+pNR5BD7FiTgb4J2jFiJVAnCoCwGnV7+Knd7eGXc6XbzfIkQgb6ImrHiJUAnSgA7J20b4UPJZcJ7svxIkIG+uKyS9MiTe10ovwvdi0ADvZNLe7AuTPCeam4O4wejDUZQEf0aYQG6Lltx8iFxZufvKy/GHeitIaQAQBAO/Z2jFgJ0IlyMkIGAACn+6pnOkas/NCJcvf8o8NjTQaAtt3IdcQM3Tp2AQhqFXNKMy/rjd/XI6l1GoQMAG1b93kRLoDDMV0CAABMEDIAAIAJQgYAADDBmgwASFhVZBeSziOX0cRF7AKQDkIGAKRtrg5tIw3sYroEAACYIGQAAAATTJcAaNvHqsg+xi4iAdehd38EUkPIAABgv9sGj11bFdHAKsA11mrwdSFkAACwR17W49g1NJGX9TTANRZqcGwAazIAAIAJQgYAADBByAAAACYIGQAAwAQhAwAAmKC7BAD65Tp2AQ2tYxcAO4QMAOgRNgBDSpguAQAAJhjJQKoWkpYNHr8yqSI97xs8dtPGBfOyXko6a+O5gC6pimzc4OGbvKxXRqUkoyqykaTRoY8nZCBJeVmvxVztX/gbPoAw/mjw2FtJY6M6UjKRdPDZREyXAAAAE4QMAABggpABAABMEDIAAIAJQgYAADBByAAAACZoYQWQvKa9+ZJWeVlvTIoB9ruoimwZu4gARk0eTMgA0AUTNejNl9u0bGlSCbDfK0nvYheRGqZLAACACUIGAAAwQcgAAAAmCBkAAMAEIQMAAJggZAAAABOEDAAAYIKQAQAATBAyAACACXb8BADgdLd5WY9jF2GtKrKZGuy+y0gGAAAwQcgAAAAmCBkAAMAEIQMAAJggZAAAABN0lyBJVZGNJE0il9F5eVnPjv3cxL4H44aPn1RF1vRzTJzyPTiGX/3fJYu8rNexi4ANQgZSNVKDNik8aXbC547U3e/BVewCdswCX69r37OlpHXkGtpwURXZMnYRAYyaPJiQAQDA6V5Jehe7iNSwJgMAAJggZAAAABOEDAAAYIKQAQAATJgu/KyK7ELSuf/P3d//aK3H1cWbvKxXZkUFsNM6dy73up+z1uNrX+VlvTEoCQCA4FoJGf6meuE/Rv7XVyc83/a3t3q8CS+V2E247dftn1NK/HUDAHCIU0PGtCoyy57sd3psCfooSVWR3cndeJeSvoS8+fpQcSm3MdBbw0vte93f5F93XtZfDK8NAEArTg0ZJ71rP9JruY12riR99jffhVzgWLd9sarIJnoMFjFe79Zb//GbH+34KumLAgctAAAO1YfNuN5K+pekf/nAMdeJN16/lmQqFy5iBovn/Ow/PldFdiP3mr/ELQkAgEd9CBm73kr6LGleFdlC0rzJ6IYftZjKdirEwpWkKz+VNJc7C2ATtaLTrSS9j13EwK3E9yAFUz29aL4PVkd+TpO/m+sjrqGG18AeZ7//+tNS/d4K9UbS7Lmw4cPFTG4qpg/u5cLGvAdhAwDQUUMIGVuf5MLGZvsHfiHnQv0JFz+6lwsas9iFAACGZ0ghQ3I33alcl8Zcbk3DENxJmrJmAwAQ0tBCxtB9lTRhCgUAEALbig/Lz5LWVZFdxi4EANB/hIzheSXp3ztbnwMAYIKQMUzf8rJexi4CANBvhIxhmsYuAADQf4SM4bllFAMAEEKoHT/v9fKubufq3k6bLznkdY8Udp+OacBrAQAGrO2QsT0hdb39temhZVWRnev7o9MvlH6L7Z1cmFjJve5NXtarJk9QFdlI7jWPd35tO3zcNK0LAIBjnbpPxr3cSaBLuSPI161UtYdvuxzLHVqWwg6d21NQzV63Dx5jtXcK7BvL7xEAALuODRlf5U79XLRe0QEinpJ6q8dj5TcBryvpu2Pnj9mp9JrtxQEAITUNGS8eNhaSn1q5lP3hZjdyZ4CsDK9xMD/CMZU00WEh617SiJ0+AQAhHRoykgoX+1RFNpULG22ObNzKbcO9bvE5W+ND1tR/PPe6GcUAAAT3Usj4Jnew1jJYRSfwN92FTj/47E4uXCxPfJ4g/MjGXPtf911e1qOQ9QAAID0fMj7lZT0NW047/CLRhY4b1ejsIWJPvO4PsdbOAACG7anNuD50NWBIkj/SfCw3EtPEP/OyvuxiwJD+fN0juWkeyW0fvohVDwBg2H4MGfeSfunDjckv0hzr8KDxIS/ruVU9oeRlvcnLeizpk9h4CwAQ0e50yb2kcSodFG3x6zSWen43UaYUAABo2XYko5cBQ3Lv7PX8iAYBAwAAA3+TtFFPA8bWTtD4uvPH95L+QcAAAMDG2cPDQ+wagqqKbCG/TXefgxUAALENLmRIbl+JVDfYAgCgL/4Pm4YrKIstbcAAAAAASUVORK5CYII=" alt="스토리집">
+    </div>
+    <div class="top-actions">
+      <button onclick="document.getElementById('guideModal').style.display='flex'">이용 안내</button>
+      <button onclick="document.getElementById('rentalModal').style.display='flex'">대관 신청</button>
+      <button class="login-btn" id="loginBtn" onclick="openLoginOrMypage()">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="8" r="3.6" stroke="currentColor" stroke-width="1.7"/>
+          <path d="M4.5 20c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        </svg>
+        <span id="loginBtnText">로그인</span>
+      </button>
+      <span class="admin-link" onclick="document.getElementById('adminPwModal').style.display='flex'">관리자</span>
+    </div>
+  </div>
+</header>
+
+<div class="modal-overlay" id="loginModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>로그인 / 마이페이지</h3>
+      <button class="modal-close" onclick="document.getElementById('loginModal').style.display='none'">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="guide-footnote" style="margin-bottom:16px;">이름과 전화번호를 입력하시면 대여 내역을 확인하실 수 있어요.<br>처음이시라면 입력하신 정보로 자동 등록됩니다.</p>
+      <div class="form-row">
+        <label>이름</label>
+        <input type="text" id="loginName" placeholder="홍길동">
+      </div>
+      <div class="form-row">
+        <label>전화번호</label>
+        <input type="text" id="loginPhone" placeholder="010-0000-0000">
+      </div>
+      <button class="submit-btn" style="margin-top:6px;" onclick="doLogin()">확인</button>
+      <p class="guide-footnote" style="margin-top:14px;">입력하신 이름과 연락처는 도서 대여 관리 목적으로만 사용되며, 반납 완료일로부터 1년 뒤 파기됩니다.</p>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="adminPwModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>관리자 화면</h3>
+      <button class="modal-close" onclick="document.getElementById('adminPwModal').style.display='none'">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label>비밀번호</label>
+        <input type="password" id="adminPw" placeholder="비밀번호 입력">
+      </div>
+      <button class="submit-btn" onclick="adminLogin()">확인</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="guideModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>스토리집 이용 안내</h3>
+      <button class="modal-close" onclick="document.getElementById('guideModal').style.display='none'">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="guide-block">
+        <p class="guide-item"><b>1. 도서 대여</b> — 1인당 최대 3권 (추천도서 1권, 기존 도서 2권)</p>
+        <p class="guide-item"><b>2. 대여 기간</b> — 2주 (14일)</p>
+        <p class="guide-item"><b>3. 대여 금액</b> — 1,000원 / 1권당</p>
+        <p class="guide-item"><b>4. 도서 구매</b> — 정가 (책 뒤편에 기재된 금액)</p>
+        <p class="guide-item"><b>5. 계좌 이체</b> — 카카오뱅크 3333-21-3960242 (천슬미)</p>
+      </div>
+      <div class="guide-divider"></div>
+      <div class="guide-block">
+        <p class="guide-subtitle">이용 규칙</p>
+        <ul class="guide-list">
+          <li>도서 반납일 준수</li>
+          <li>도서 연체 시 반납일 이후 1주마다 1,000원 추가금 발생</li>
+          <li>도서 훼손 시 부담금 발생</li>
+        </ul>
+      </div>
+      <div class="guide-divider"></div>
+      <p class="guide-footnote">책을 소중히 다뤄주세요. (낙서 등 훼손 금지, 책갈피와 북마크 이용)<br>수익금은 청년과 공간 운영을 위한 후원금으로 사용됩니다.</p>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="rentalModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>대관 신청</h3>
+      <button class="modal-close" onclick="document.getElementById('rentalModal').style.display='none'">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="guide-subtitle">대관 이용 안내</p>
+      <div class="dm-highlight">DM으로 <b>날짜, 시간, 이용 목적</b>을 보내주시면 대관 신청이 진행됩니다.</div>
+
+      <ol class="guide-list numbered">
+        <li>스토리집은 책이 있는 문화공간으로, 책 훼손을 방지하기 위해 간단한 음료 외의 음식을 시켜먹거나 만들어먹는 행위를 금하고 있습니다 🥹</li>
+        <li>보신 책은 책장에 꽂지 마시고 입구 앞 책 반납함에 넣어주시면 저희가 정리하겠습니다 😊 (책의 위치가 달라지면 분실했다고 생각할 수 있어요.)</li>
+        <li>쓰레기는 챙겨 나가주셔서 분리배출 해주세요.</li>
+        <li>이용 후 나가실 때 조명과 에어컨을 꼭 꺼주시고, 문은 잠가주세요 🚪 (도어락에 손을 대시면 자동으로 잠깁니다.)</li>
+        <li>주차는 평택성결교회로 들어오셔서 중앙 큰 계단 우측, 스토리집 앞에 하실 수 있습니다.</li>
+        <li>화장실은 스토리집에서 우측으로 나가시면 복도 끝 우측에 있습니다 🚽</li>
+        <li>스토리집은 후원금으로 운영되고 있습니다. 후원은 언제나 대환영이에요 💓<br><span class="donate-account">후원계좌: 우리은행 1002-253-615228 (천슬미)</span></li>
+        <li>그 밖의 이용 문의는 인스타그램 @_story.zip 으로 부탁드려요 📮 (답변 가능 시간: 평일 10시~17시)</li>
+      </ol>
+
+      <a class="insta-btn-full" href="https://www.instagram.com/_story.zip?utm_source=qr" target="_blank" rel="noopener">
+        <span class="insta-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M21 3L2 10.5L10 13L13 21L21 3Z" stroke="var(--card)" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+            <path d="M21 3L10 13" stroke="var(--card)" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span>인스타그램으로 문의하기 (@_story.zip)</span>
+      </a>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="returnModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>반납 신청</h3>
+      <button class="modal-close" onclick="document.getElementById('returnModal').style.display='none'">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="picked-book" id="returnBookInfo"></div>
+
+      <div id="returnFeeArea"></div>
+
+      <div class="form-row" style="margin-top:16px;">
+        <label>반납 예정 일시</label>
+        <input type="date" id="returnDate">
+      </div>
+      <div class="form-row">
+        <label>방문 시간대</label>
+        <div class="radio-group" id="returnTimeGroup">
+          <div class="radio-pill selected" tabindex="0" role="button" aria-pressed="true" onclick="selectReturnTime(this,'오전 (10~13시)')">오전<br><span class="pill-sub">10~13시</span></div>
+          <div class="radio-pill" tabindex="0" role="button" aria-pressed="false" onclick="selectReturnTime(this,'오후 (13~17시)')">오후<br><span class="pill-sub">13~17시</span></div>
+        </div>
+      </div>
+
+      <p class="guide-footnote">반납 신청을 하시면 관리자가 확인 후 최종 반납 처리를 해드려요. 신청 즉시 대여 권수에서 제외되어 다른 책을 빌리실 수 있어요.</p>
+      <button class="submit-btn" onclick="submitReturn()">반납 신청하기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="bookDetailModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>도서 정보</h3>
+      <button class="modal-close" onclick="document.getElementById('bookDetailModal').style.display='none'">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="book-detail-cover" id="bookDetailCover"></div>
+      <p class="book-detail-title" id="bookDetailTitle"></p>
+      <p class="book-detail-meta" id="bookDetailMeta"></p>
+      <p class="book-detail-desc" id="bookDetailDesc"></p>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div id="pageSearch">
+
+  <section id="recommendSection" style="display:none;">
+    <h2 class="section-title">이달의 추천도서</h2>
+    <p class="section-sub" id="recommendSub"></p>
+    <div class="poster-gallery" id="recommendPosterGallery"></div>
+    <div class="rec-scroll" id="recommendScroll"></div>
+    <p class="rec-note">추천도서는 한 번에 1권씩만 대여 가능합니다</p>
+  </section>
+  <section>
+    <h2 class="section-title">소장 도서 검색</h2>
+    <p class="section-sub">책 제목, 저자명으로 책을 검색해 보세요</p>
+
+    <div class="search-combo">
+      <input type="text" id="searchInput" placeholder="책 제목 또는 저자명 검색">
+      <button aria-label="검색" onclick="doSearch()">검색</button>
+    </div>
+
+    <div class="tabs" id="catTabs"></div>
+    <div class="sort-row" id="sortRow">
+      <span class="sort-label">정렬</span>
+      <button class="sort-btn" id="sortDefault" onclick="setSort('default')">기본순</button>
+      <button class="sort-btn" id="sortTitle" onclick="setSort('title')">책제목순</button>
+      <button class="sort-btn" id="sortAuthor" onclick="setSort('author')">작가순</button>
+    </div>
+
+    <p class="result-count" id="resultCount"></p>
+    <div id="resultsList"></div>
+    <div class="pagination" id="pagination"></div>
+
+    <div class="cart-bar" id="cartBar">
+      <span id="cartCount">선택한 도서 0권</span>
+      <span id="cartLimitNote">· 도서 최대 3권까지 선택 가능</span>
+      <button class="apply-btn" id="applyBtn" disabled onclick="goToApply()">신청</button>
+    </div>
+  </section>
+
+  </div>
+
+  <div id="pageMypage" style="display:none;">
+    <button class="back-btn" onclick="goBackFromMypage()">← 목록으로 돌아가기</button>
+
+    <section>
+      <h2 class="section-title">마이페이지</h2>
+      <p class="section-sub" id="mypageWho"></p>
+
+      <div class="mypage-summary" id="mypageSummary"></div>
+      <div id="myLoansList"></div>
+
+      <div id="myPurchasesWrap" style="display:none;">
+        <h3 class="mypage-subtitle">구매하신 도서</h3>
+        <div id="myPurchasesList"></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="pageApply" style="display:none;">
+    <button class="back-btn" onclick="goBack()">← 목록으로 돌아가기</button>
+
+  <section id="applySection">
+
+    <div class="form-card">
+      <div class="form-row">
+        <label>이름</label>
+        <input type="text" id="applyName" placeholder="홍길동">
+      </div>
+      <div class="form-row">
+        <label>연락처</label>
+        <input type="text" id="applyPhone" placeholder="010-0000-0000">
+      </div>
+      <div class="form-row">
+        <label>선택한 도서</label>
+        <div id="pickedList">
+          <p class="empty-pick">검색결과에서 "선택" 버튼을 누르면 여기에 표시돼요</p>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>이용 형태</label>
+        <div class="radio-group">
+          <div class="radio-pill selected" id="pillRental" tabindex="0" role="button" aria-pressed="true" onclick="selectMode('rental')">대여</div>
+          <div class="radio-pill" id="pillPurchase" tabindex="0" role="button" aria-pressed="false" onclick="selectMode('purchase')">구매(포장도서)</div>
+        </div>
+      </div>
+
+      <div id="rentalFlow">
+        <div class="price-box">
+          📖 <span id="priceMainText">대여는 한 권에 <b>2주 동안</b> 대여가 되고, 대여비는 <b>1,000원</b>이에요.</span>
+          <p class="price-note">※ 반납일이 지나면 연체료가 청구되니, 반납일을 꼭 지켜주세요 :)</p>
+        </div>
+
+        <div class="pay-box">
+          <div class="qr-placeholder"></div>
+          <div class="pay-info">
+            <p>계좌이체로 결제해주세요</p>
+            <p class="account">카카오뱅크 3333-21-3960242</p>
+            <p>예금주: 천슬미 · <b id="payTotal">0원</b></p>
+            <p class="pay-hint">입금자명은 <b>신청자 본인 이름</b>으로 보내주세요</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="purchaseFlow" style="display:none;">
+        <div class="purchase-note">
+          <svg class="book-back-illust" viewBox="0 0 160 120" xmlns="http://www.w3.org/2000/svg">
+            <rect x="20" y="8" width="120" height="104" rx="4" fill="#EFE6D4" stroke="#C9BB9E"/>
+            <line x1="34" y1="26" x2="126" y2="26" stroke="#C9BB9E" stroke-width="3" stroke-linecap="round"/>
+            <line x1="34" y1="38" x2="126" y2="38" stroke="#C9BB9E" stroke-width="3" stroke-linecap="round"/>
+            <line x1="34" y1="50" x2="100" y2="50" stroke="#C9BB9E" stroke-width="3" stroke-linecap="round"/>
+            <line x1="34" y1="66" x2="126" y2="66" stroke="#C9BB9E" stroke-width="3" stroke-linecap="round"/>
+            <line x1="34" y1="78" x2="90" y2="78" stroke="#C9BB9E" stroke-width="3" stroke-linecap="round"/>
+            <rect x="98" y="90" width="34" height="18" rx="2" fill="#FFFFFF" stroke="#8B5A2E" stroke-width="1.6"/>
+            <text x="115" y="102" font-family="Arial" font-size="10" fill="#8B5A2E" text-anchor="middle" font-weight="700">₩</text>
+            <circle cx="115" cy="99" r="22" fill="none" stroke="#9C5A2E" stroke-width="1.6" stroke-dasharray="3 3"/>
+          </svg>
+          <p class="purchase-text">책 <b>뒷면 하단</b>에 적힌 판매가를 확인하신 뒤, 해당 금액을 계좌이체 해주세요.</p>
+          <p class="account" style="margin-top:6px;">카카오뱅크 3333-21-3960242 (천슬미)</p>
+          <p class="pay-hint">입금자명은 <b>신청자 본인 이름</b>으로 보내주세요</p>
+        </div>
+      </div>
+
+      <button class="submit-btn" id="applySubmitBtn" onclick="submitApply()">신청 완료하기</button>
+    </div>
+  </section>
+
+  <div class="privacy-note">
+    <h3>개인정보 수집 및 이용 안내</h3>
+    수집 항목: 이름, 연락처, 도서명, 대출 기간, 이용 형태(대여/구매), 결제 수단, 반납 여부<br>
+    수집 목적: 도서 대출·구매 관리 및 반납·연체 안내<br>
+    보유 기간: 반납 완료일로부터 1년 (이후 지체 없이 파기)<br>
+    스토리집은 위 정보를 도서 관리 목적 외에는 사용하지 않으며, 외부에 제공하지 않습니다.
+  </div>
+
+  </div>
+
+  <div id="pageAdmin" style="display:none;">
+    <button class="back-btn" onclick="goBackFromAdmin()">← 목록으로 돌아가기</button>
+
+    <section>
+      <h2 class="section-title">관리자 화면</h2>
+      <p class="section-sub">입금 확인, 반납 처리를 여기서 하실 수 있어요</p>
+
+      <div class="admin-summary" id="adminSummary"></div>
+
+      <div class="admin-tabs" id="adminTabs">
+        <button class="admin-tab active" onclick="setAdminTab('overdue', this)">연체중</button>
+        <button class="admin-tab" onclick="setAdminTab('returning', this)">반납신청 대기</button>
+        <button class="admin-tab" onclick="setAdminTab('unpaid', this)">입금확인 대기</button>
+        <button class="admin-tab" onclick="setAdminTab('all', this)">전체</button>
+      </div>
+
+      <div id="adminList"></div>
+    </section>
+  </div>
+
+</div>
+
+<script>
+  const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzyldmbIMUNrtvPyOQ_UlDTdM-w_vWH_b09oiuTcDZxDMnt-1EQQCv5RTomNH5o5pMvqg/exec';
+  let BOOKS = [];
+  let booksLoaded = false;
+  const CATEGORIES = ['소설','에세이','그림책/동화','인문학','시','기독교','자기계발/심리','예술'];
+  let liveStatus = {}; // bookId -> {dueDate} for currently checked-out books (실제 대여기록 기반)
+  const PAGE_SIZE = 10;
+
+  let currentCat = '전체';
+  let currentSort = 'default';
+  let currentQuery = '';
+  let currentPage = 1;
+
+  function renderTabs() {
+    const wrap = document.getElementById('catTabs');
+    const all = ['전체', ...CATEGORIES];
+    wrap.innerHTML = all.map(c =>
+      '<button class="tab' + (c === currentCat ? ' active' : '') + '" onclick="setCategory(\'' + c + '\')">' + c + '</button>'
+    ).join('');
+  }
+
+  function setCategory(cat) {
+    currentCat = cat;
+    currentPage = 1;
+    renderTabs();
+    renderResults();
+  }
+
+  function setSort(mode) {
+    currentSort = mode;
+    currentPage = 1;
+    ['sortDefault','sortTitle','sortAuthor'].forEach(id => document.getElementById(id).classList.remove('active'));
+    const map = { default: 'sortDefault', title: 'sortTitle', author: 'sortAuthor' };
+    document.getElementById(map[mode]).classList.add('active');
+    renderResults();
+  }
+
+  function doSearch() {
+    currentQuery = document.getElementById('searchInput').value.trim();
+    currentPage = 1;
+    renderResults();
+  }
+
+  function getStatus(id) {
+    const s = liveStatus[id];
+    if (!s) return { status: 'available' };
+    const ov = overdueInfo({ dueDate: s.dueDate });
+    if (ov.overdue) {
+      return { status: 'overdue', due: fmtDateShort_(s.dueDate), days: ov.days };
+    }
+    return { status: 'unavailable', due: fmtDateShort_(s.dueDate) };
+  }
+
+  function fmtDateShort_(str) {
+    const d = new Date(str);
+    return (d.getMonth() + 1) + '/' + d.getDate();
+  }
+
+  function getFilteredSorted() {
+    let list = BOOKS.filter(b => {
+      const matchCat = currentCat === '전체' || b.cat === currentCat;
+      const q = currentQuery.toLowerCase();
+      const matchQuery = !q || b.title.toLowerCase().includes(q) || b.author.toLowerCase().includes(q);
+      return matchCat && matchQuery;
+    });
+    if (currentSort === 'title') {
+      list = list.slice().sort((a, b) => String(a.title).localeCompare(String(b.title), 'ko'));
+    } else if (currentSort === 'author') {
+      list = list.slice().sort((a, b) => String(a.author).localeCompare(String(b.author), 'ko'));
+    }
+    return list;
+  }
+
+  function buildPageList(total, current) {
+    const delta = 2, range = [], withDots = [];
+    for (let i = 1; i <= total; i++) {
+      if (i === 1 || i === total || (i >= current - delta && i <= current + delta)) range.push(i);
+    }
+    let last = null;
+    for (const i of range) {
+      if (last !== null) {
+        if (i - last === 2) withDots.push(last + 1);
+        else if (i - last > 2) withDots.push('...');
+      }
+      withDots.push(i);
+      last = i;
+    }
+    return withDots;
+  }
+
+  function renderPagination(total) {
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    if (currentPage > totalPages) currentPage = totalPages;
+    const wrap = document.getElementById('pagination');
+    if (totalPages <= 1) { wrap.innerHTML = ''; return; }
+
+    let html = '<button class="page-btn" ' + (currentPage === 1 ? 'disabled' : '') + ' onclick="goToPage(' + (currentPage - 1) + ')">‹</button>';
+    buildPageList(totalPages, currentPage).forEach(p => {
+      if (p === '...') {
+        html += '<span class="page-dots">…</span>';
+      } else {
+        html += '<button class="page-btn' + (p === currentPage ? ' active' : '') + '" onclick="goToPage(' + p + ')">' + p + '</button>';
+      }
+    });
+    html += '<button class="page-btn" ' + (currentPage === totalPages ? 'disabled' : '') + ' onclick="goToPage(' + (currentPage + 1) + ')">›</button>';
+    wrap.innerHTML = html;
+  }
+
+  function goToPage(p) {
+    currentPage = p;
+    renderResults();
+  }
+
+  function renderResults() {
+    const list = getFilteredSorted();
+    const total = list.length;
+
+    if (total === 0) {
+      document.getElementById('resultCount').textContent = '';
+      document.getElementById('resultsList').innerHTML = '<p class="no-results">도서 검색 결과가 없습니다.</p>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    document.getElementById('resultCount').textContent = '총 ' + total + '권';
+
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const pageItems = list.slice(start, start + PAGE_SIZE);
+
+    document.getElementById('resultsList').innerHTML = pageItems.map(b => {
+      const st = getStatus(b.id);
+      const isSelected = !!selected[b.id];
+      let statusHtml, checkboxHtml;
+      const ariaLabel = escapeHtml(b.title) + ' 선택';
+      if (st.status === 'available') {
+        statusHtml = '<span class="status available">대출 가능</span>';
+        checkboxHtml = '<input type="checkbox" class="pick-checkbox" aria-label="' + ariaLabel + '" ' + (isSelected ? 'checked' : '') + ' onclick="event.stopPropagation()" onchange="toggleSelect(\'' + b.id + '\',\'' + jsAttr(b.title) + '\',\'' + jsAttr(b.author) + '\',this)">';
+      } else if (st.status === 'unavailable') {
+        statusHtml = '<span class="status unavailable">대출중</span><p class="due-note">반납예정일 ' + st.due + '</p>';
+        checkboxHtml = '<input type="checkbox" class="pick-checkbox" aria-label="' + ariaLabel + '" disabled>';
+      } else {
+        statusHtml = '<span class="status overdue">연체중 (' + st.days + '일)</span><p class="due-note">반납예정일 ' + st.due + '</p>';
+        checkboxHtml = '<input type="checkbox" class="pick-checkbox" aria-label="' + ariaLabel + '" disabled>';
+      }
+      const coverHtml = b.coverUrl
+        ? '<img src="' + escapeHtml(b.coverUrl) + '" alt="" loading="lazy" onerror="this.parentElement.innerHTML=\'\'">'
+        : '';
+      const descHtml = b.description
+        ? '<p class="result-desc">' + escapeHtml(b.description) + '</p>'
+        : '';
+      return '<div class="result-row' + (isSelected ? ' is-selected' : '') + '" id="book-' + b.id + '" onclick="openBookDetail(\'' + b.id + '\')" ' +
+        'tabindex="0" role="button" aria-label="' + escapeHtml(b.title) + ' 상세 보기">' +
+        '<div class="result-left">' + checkboxHtml +
+        '<div class="result-cover">' + coverHtml + '</div>' +
+        '<div><p class="result-title">' + escapeHtml(b.title) + '</p>' +
+        '<p class="result-meta">' + escapeHtml(b.author) + ' · ' + escapeHtml(b.cat) + '</p>' + descHtml + '</div></div>' +
+        '<div class="result-right">' + statusHtml + '</div></div>';
+    }).join('');
+
+    renderPagination(total);
+  }
+
+  let recBooks = {}; // 이달의 추천도서에서 표시 중인 책: id -> book (BOOKS 조회 실패 시 대비용)
+
+  function openBookDetail(id) {
+    const b = BOOKS.find(x => String(x.id) === String(id)) || recBooks[id];
+    if (!b) return;
+    document.getElementById('bookDetailCover').innerHTML = b.coverUrl
+      ? '<img src="' + escapeHtml(b.coverUrl) + '" alt="" onerror="this.parentElement.innerHTML=\'\'">'
+      : '';
+    document.getElementById('bookDetailTitle').textContent = b.title;
+    document.getElementById('bookDetailMeta').textContent = b.author + (b.cat ? ' · ' + b.cat : '');
+    document.getElementById('bookDetailDesc').textContent = b.description || '소개 정보가 없습니다.';
+    document.getElementById('bookDetailModal').style.display = 'flex';
+  }
+
+  const selected = {};     // 일반 검색결과에서 선택한 책: id -> {title, author}
+  const selectedRec = {};  // 이달의 추천도서에서 선택한 책: id -> {title, author}
+  const MAX_TOTAL = 3;
+  const MAX_REC = 1;
+  const FEE_PER_BOOK = 1000;
+  const OVERDUE_FEE_PER_WEEK = 1000;
+
+  // ── 회원 / 대여 내역 (구글시트 "대여기록"에서 실시간으로 불러옴) ──
+  let currentUser = null;
+  let myLoans = [];
+  let myLoansLoadFailed = false;
+  let returningBookId = null;
+  let returnTimeSlot = '오전 (10~13시)';
+
+  function daysBetween(a, b) {
+    return Math.floor((a - b) / (1000 * 60 * 60 * 24));
+  }
+
+  // 매번 new Date()로 새로 계산한다 — 탭을 오래 켜둔 채로(예: 관리자가 밤새 켜둠)
+  // 자정을 넘겨도 연체일수·연체료가 그 시점 기준으로 정확히 갱신되도록 한다.
+  function overdueInfo(loan) {
+    const due = new Date(loan.dueDate);
+    const days = daysBetween(new Date(), due);
+    if (days <= 0) return { overdue: false, days: 0, fee: 0 };
+    // 7일마다 1,000원씩 누적 (6일까지는 0원, 7일째 1,000원, 14일째 2,000원)
+    const fee = Math.floor(days / 7) * OVERDUE_FEE_PER_WEEK;
+    return { overdue: true, days: days, fee: fee };
+  }
+
+  function fmtDate(str) {
+    const d = new Date(str);
+    return (d.getMonth() + 1) + '월 ' + d.getDate() + '일';
+  }
+
+  // 사용자가 입력했거나(이름·전화번호) 신청 시점에 클라이언트가 보낸(도서명·저자 등)
+  // 값을 innerHTML로 그릴 때는 반드시 이 함수를 거친다 — 저장형 XSS 방지.
+  function escapeHtml(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  // 책 제목/저자처럼 onclick="fn('...')" 안에 JS 문자열 인자로 심는 값은
+  // ①JS 문자열 이스케이프 → ②HTML 속성 이스케이프 순으로 이중 처리해야
+  // 큰따옴표로 속성이 조기 종료되는 것도, 작은따옴표로 JS 문자열이 깨지는 것도 막는다.
+  function jsAttr(v) {
+    const jsEscaped = String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return escapeHtml(jsEscaped);
+  }
+
+  // 010/011/016~019로 시작하는 국내 휴대폰 번호 형식만 통과시킨다(하이픈 유무 무관).
+  // 오타 전화번호가 그대로 저장되면 본인이 마이페이지에서 대여내역을 못 찾게 되는 문제 방지.
+  function isValidPhone(v) {
+    return /^01[016789]-?\d{3,4}-?\d{4}$/.test(String(v == null ? '' : v).trim());
+  }
+
+  // 브라우저 로컬 타임존 기준 YYYY-MM-DD (toISOString()은 UTC라, 한국 자정~오전
+  // 9시 사이엔 날짜가 하루 전으로 밀려 보이는 문제가 있어 로컬 getter로 만든다).
+  function localDateStr_(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+
+  // 반납 신청한 책은 대여 권수에서 제외 → 바로 다른 책을 빌릴 수 있음
+  function activeLoanCount() {
+    return myLoans.filter(l => l.status === '대여중').length;
+  }
+
+  function totalCount() {
+    return Object.keys(selected).length + Object.keys(selectedRec).length;
+  }
+
+  function openLoginOrMypage() {
+    if (currentUser) {
+      goToMypage();
+      refreshMyLoans();
+    } else {
+      document.getElementById('loginModal').style.display = 'flex';
+    }
+  }
+
+  async function doLogin() {
+    const name = document.getElementById('loginName').value.trim();
+    const phone = document.getElementById('loginPhone').value.trim();
+    if (!name || !phone) {
+      alert('이름과 전화번호를 모두 입력해주세요.');
+      return;
+    }
+    if (!isValidPhone(phone)) {
+      alert('전화번호 형식을 확인해주세요. 예: 010-1234-5678');
+      return;
+    }
+    currentUser = { name: name, phone: phone };
+    document.getElementById('loginBtnText').textContent = name + '님';
+    document.getElementById('loginModal').style.display = 'none';
+
+    myLoans = [];
+    goToMypage();
+    await refreshMyLoans();
+    renderResults();
+  }
+
+  async function refreshMyLoans() {
+    if (!currentUser) return;
+    myLoansLoadFailed = false;
+    try {
+      const res = await fetch(APPS_SCRIPT_URL + '?action=myloans&phone=' + encodeURIComponent(currentUser.phone));
+      const data = await res.json();
+      if (data.ok) {
+        myLoans = data.loans.map(l => ({
+          row: l.row, bookId: l.bookId, title: l.title, author: l.author,
+          loanDate: l.loanDate, dueDate: l.dueDate, status: l.status,
+          returnRequestDate: l.returnRequestDate, returnTimeSlot: l.returnTimeSlot
+        }));
+      } else {
+        myLoansLoadFailed = true;
+      }
+    } catch (err) {
+      // 네트워크 오류 — 화면에 안내 표시(무피드백 방지). 기존 목록은 유지.
+      myLoansLoadFailed = true;
+    }
+    renderMypage();
+  }
+
+  function goToMypage() {
+    document.getElementById('pageSearch').style.display = 'none';
+    document.getElementById('pageApply').style.display = 'none';
+    document.getElementById('pageMypage').style.display = 'block';
+    renderMypage();
+    window.scrollTo(0, 0);
+  }
+
+  function goBackFromMypage() {
+    document.getElementById('pageMypage').style.display = 'none';
+    document.getElementById('pageSearch').style.display = 'block';
+    window.scrollTo(0, 0);
+  }
+
+  function renderMypage() {
+    if (!currentUser) return;
+    document.getElementById('mypageWho').textContent = currentUser.name + '님 · ' + currentUser.phone;
+
+    const active = activeLoanCount();
+    const overdueLoans = myLoans.filter(l => l.status === '대여중' && overdueInfo(l).overdue);
+    const totalFee = overdueLoans.reduce((sum, l) => sum + overdueInfo(l).fee, 0);
+
+    document.getElementById('mypageSummary').innerHTML =
+      '<div class="summary-chip"><p class="chip-label">대여 중</p><p class="chip-value">' + active + '권</p></div>' +
+      '<div class="summary-chip"><p class="chip-label">더 빌릴 수 있어요</p><p class="chip-value">' + (MAX_TOTAL - active) + '권</p></div>' +
+      '<div class="summary-chip' + (totalFee > 0 ? ' warn' : '') + '"><p class="chip-label">연체료</p><p class="chip-value">' + totalFee.toLocaleString() + '원</p></div>';
+
+    const rentalLoans = myLoans.filter(l => l.status === '대여중' || l.status === '반납신청');
+    const purchases = myLoans.filter(l => l.status === '구매완료');
+
+    if (myLoansLoadFailed) {
+      document.getElementById('myLoansList').innerHTML =
+        '<p class="empty-loans">대여 내역을 불러오지 못했어요. 실제로는 대여 중인 책이 있을 수 있어요.<br>' +
+        '<a href="javascript:void(0)" onclick="refreshMyLoans()">다시 시도</a></p>';
+    } else if (rentalLoans.length === 0) {
+      document.getElementById('myLoansList').innerHTML = '<p class="empty-loans">현재 대여 중인 도서가 없습니다.</p>';
+    } else {
+      document.getElementById('myLoansList').innerHTML = rentalLoans.map(l => {
+      const ov = overdueInfo(l);
+      const requested = l.status === '반납신청';
+      let cls = 'loan-card';
+      if (requested) cls += ' is-requested';
+      else if (ov.overdue) cls += ' is-overdue';
+
+      let rightHtml = requested
+        ? '<span class="requested-tag">반납 신청 완료</span>'
+        : '<button class="return-btn" onclick="openReturnModal(\'' + l.bookId + '\')">반납 신청</button>';
+
+      let feeHtml = '';
+      if (!requested && ov.overdue) {
+        feeHtml = '<div class="loan-fee"><b>' + ov.days + '일 연체 중</b>' +
+          (ov.fee > 0 ? ' · 현재 연체료 ' + ov.fee.toLocaleString() + '원' : '') + '</div>';
+      }
+
+      return '<div class="' + cls + '">' +
+        '<div class="loan-top"><div>' +
+        '<p class="loan-title">' + escapeHtml(l.title) + '</p>' +
+        '<p class="loan-author">' + escapeHtml(l.author) + ' · 관리번호 ' + escapeHtml(l.bookId) + '</p>' +
+        '</div>' + rightHtml + '</div>' +
+        '<p class="loan-dates">' +
+        '<span class="lbl">대여일</span>' + fmtDate(l.loanDate) + '<br>' +
+        '<span class="lbl">반납예정일</span>' + fmtDate(l.dueDate) +
+        (requested && l.returnRequestDate ? '<br><span class="lbl">반납 예정</span>' + fmtDate(l.returnRequestDate) + ' ' + l.returnTimeSlot : '') +
+        '</p>' + feeHtml + '</div>';
+      }).join('');
+    }
+
+    const purchWrap = document.getElementById('myPurchasesWrap');
+    if (purchases.length === 0) {
+      purchWrap.style.display = 'none';
+    } else {
+      purchWrap.style.display = 'block';
+      document.getElementById('myPurchasesList').innerHTML = purchases.map(p =>
+        '<div class="loan-card">' +
+        '<div class="loan-top"><div>' +
+        '<p class="loan-title">' + escapeHtml(p.title) + '</p>' +
+        '<p class="loan-author">' + escapeHtml(p.author) + ' · 관리번호 ' + escapeHtml(p.bookId) + '</p>' +
+        '</div><span class="requested-tag">구매완료</span></div>' +
+        '<p class="loan-dates"><span class="lbl">구매일</span>' + fmtDate(p.loanDate) + '</p>' +
+        '</div>'
+      ).join('');
+    }
+  }
+
+  function openReturnModal(bookId) {
+    const loan = myLoans.find(l => l.bookId === bookId);
+    if (!loan) return;
+    returningBookId = bookId;
+
+    document.getElementById('returnBookInfo').innerHTML =
+      '<div class="picked-cover"></div><div>' +
+      '<p class="picked-title">' + escapeHtml(loan.title) + '</p>' +
+      '<p class="picked-meta">' + escapeHtml(loan.author) + ' · 반납예정일 ' + fmtDate(loan.dueDate) + '</p></div>';
+
+    const ov = overdueInfo(loan);
+    document.getElementById('returnFeeArea').innerHTML = (ov.overdue && ov.fee > 0)
+      ? '<div class="fee-notice">현재 <b>' + ov.days + '일</b> 연체 중이에요.<br>납부하실 연체료는 <span class="fee-amount">' + ov.fee.toLocaleString() + '원</span>입니다.' +
+        '<div class="fee-account">카카오뱅크 3333-21-3960242 (천슬미)<br>입금자명은 신청자 본인 이름으로 부탁드려요.</div></div>'
+      : '';
+
+    const d = new Date();
+    document.getElementById('returnDate').value = localDateStr_(d);
+    document.getElementById('returnDate').min = localDateStr_(d);
+
+    document.querySelectorAll('#returnTimeGroup .radio-pill').forEach((el, i) => {
+      el.classList.toggle('selected', i === 0);
+      el.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+    });
+    returnTimeSlot = '오전 (10~13시)';
+
+    document.getElementById('returnModal').style.display = 'flex';
+  }
+
+  function selectReturnTime(el, slot) {
+    document.querySelectorAll('#returnTimeGroup .radio-pill').forEach(p => {
+      p.classList.remove('selected');
+      p.setAttribute('aria-pressed', 'false');
+    });
+    el.classList.add('selected');
+    el.setAttribute('aria-pressed', 'true');
+    returnTimeSlot = slot;
+  }
+
+  async function submitReturn() {
+    const loan = myLoans.find(l => l.bookId === returningBookId);
+    if (!loan) return;
+    const date = document.getElementById('returnDate').value;
+    if (!date) {
+      alert('반납 예정 일시를 선택해주세요.');
+      return;
+    }
+    if (date < localDateStr_(new Date())) {
+      alert('반납 예정일은 오늘 이후 날짜로 선택해주세요.');
+      return;
+    }
+
+    const btn = document.querySelector('#returnModal .submit-btn');
+    btn.disabled = true;
+    btn.textContent = '처리 중...';
+
+    try {
+      const res = await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'return',
+          phone: currentUser.phone,
+          bookId: returningBookId,
+          row: loan.row,
+          returnDate: date,
+          returnTimeSlot: returnTimeSlot
+        })
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || '반납 신청 처리 중 문제가 발생했어요.');
+        return;
+      }
+
+      document.getElementById('returnModal').style.display = 'none';
+      alert('반납 신청이 접수되었어요.\n관리자 확인 후 최종 반납 처리됩니다.\n\n이제 다른 책을 빌리실 수 있어요!');
+      await refreshMyLoans();
+      await loadBooks();
+      render();
+    } catch (err) {
+      alert('반납 신청 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '반납 신청하기';
+    }
+  }
+
+  async function submitApply() {
+    const name = document.getElementById('applyName').value.trim();
+    const phone = document.getElementById('applyPhone').value.trim();
+    if (!name || !phone) {
+      alert('이름과 연락처를 입력해주세요.');
+      return;
+    }
+    if (!isValidPhone(phone)) {
+      alert('전화번호 형식을 확인해주세요. 예: 010-1234-5678');
+      return;
+    }
+
+    const searchIds = Object.keys(selected);
+    const recIds = Object.keys(selectedRec);
+    const items = [
+      ...recIds.map(id => ({ bookId: id, title: selectedRec[id].title, author: selectedRec[id].author })),
+      ...searchIds.map(id => ({ bookId: id, title: selected[id].title, author: selected[id].author }))
+    ];
+
+    if (items.length === 0) {
+      alert('선택한 도서가 없어요. 검색결과에서 책을 선택해주세요.');
+      return;
+    }
+
+    if (applyMode === 'rental') {
+      const wouldBe = items.length + activeLoanCount();
+      if (wouldBe > MAX_TOTAL) {
+        alert('대여는 1인당 최대 ' + MAX_TOTAL + '권까지 가능해요.\n(구매는 권수 제한 없이 가능해요)');
+        return;
+      }
+    }
+
+    const btn = document.getElementById('applySubmitBtn');
+    btn.disabled = true;
+    btn.textContent = '신청 처리 중...';
+
+    try {
+      const res = await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'apply',
+          name: name,
+          phone: phone,
+          type: applyMode === 'rental' ? '대여' : '구매',
+          items: items
+        })
+      });
+      const data = await res.json();
+
+      if (!data.ok) {
+        alert(data.error || '신청 처리 중 문제가 발생했어요. 다시 시도해주세요.');
+        return;
+      }
+
+      // 신청 성공: 선택 초기화 + 로그인 상태 갱신
+      Object.keys(selected).forEach(k => delete selected[k]);
+      Object.keys(selectedRec).forEach(k => delete selectedRec[k]);
+      document.querySelectorAll('.pick-checkbox').forEach(cb => { cb.checked = false; });
+      document.querySelectorAll('.result-row.is-selected, .rec-card.is-selected').forEach(el => el.classList.remove('is-selected'));
+
+      currentUser = { name: name, phone: phone };
+      document.getElementById('loginBtnText').textContent = name + '님';
+
+      alert('신청이 접수되었어요!');
+
+      await loadBooks();   // 최신 대출 상태 반영
+      render();
+      goBack();
+    } catch (err) {
+      alert('신청 처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '신청 완료하기';
+    }
+  }
+
+  function goToApply() {
+    if (currentUser) {
+      document.getElementById('applyName').value = currentUser.name;
+      document.getElementById('applyPhone').value = currentUser.phone;
+    }
+
+    // 대여 기본모드인 채로 3권을 넘겨 들어오면(선택 단계에는 권수 제한이 없음 —
+    // 구매는 무제한이라 체크박스에서 미리 막을 수 없다) 신청서에서 잘못된 대여가
+    // 계산되지 않도록 구매 모드로 미리 전환해 안내한다.
+    const count = Object.keys(selected).length + Object.keys(selectedRec).length;
+    if (applyMode === 'rental' && count + activeLoanCount() > MAX_TOTAL) {
+      selectMode('purchase');
+      alert('선택하신 도서가 ' + count + '권이라 대여 대신 구매(포장도서)로 전환했어요.\n대여는 1인당 최대 ' + MAX_TOTAL + '권까지 가능해요.');
+    }
+
+    document.getElementById('pageSearch').style.display = 'none';
+    document.getElementById('pageMypage').style.display = 'none';
+    document.getElementById('pageApply').style.display = 'block';
+    window.scrollTo(0, 0);
+  }
+
+  function goBack() {
+    document.getElementById('pageApply').style.display = 'none';
+    document.getElementById('pageSearch').style.display = 'block';
+    window.scrollTo(0, 0);
+  }
+
+  // ── 관리자 화면 ──
+  let adminPassword = null;
+  let adminRecords = [];
+  let adminTab = 'overdue';
+
+  async function adminLogin() {
+    const pw = document.getElementById('adminPw').value;
+    const btn = document.querySelector('#adminPwModal .submit-btn');
+    btn.disabled = true;
+    btn.textContent = '확인 중...';
+    try {
+      const res = await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'admin_records', pw: pw })
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || '비밀번호가 올바르지 않아요.');
+        return;
+      }
+      adminPassword = pw;
+      adminRecords = data.records;
+      document.getElementById('adminPwModal').style.display = 'none';
+      document.getElementById('adminPw').value = '';
+      goToAdmin();
+    } catch (err) {
+      alert('접속 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '확인';
+    }
+  }
+
+  function goToAdmin() {
+    document.getElementById('pageSearch').style.display = 'none';
+    document.getElementById('pageMypage').style.display = 'none';
+    document.getElementById('pageApply').style.display = 'none';
+    document.getElementById('pageAdmin').style.display = 'block';
+    renderAdmin();
+    window.scrollTo(0, 0);
+  }
+
+  function goBackFromAdmin() {
+    document.getElementById('pageAdmin').style.display = 'none';
+    document.getElementById('pageSearch').style.display = 'block';
+    window.scrollTo(0, 0);
+  }
+
+  async function refreshAdminRecords() {
+    try {
+      const res = await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'admin_records', pw: adminPassword })
+      });
+      const data = await res.json();
+      if (data.ok) adminRecords = data.records;
+    } catch (err) { /* 조용히 무시하고 기존 목록 유지 */ }
+    renderAdmin();
+  }
+
+  function setAdminTab(tab, btnEl) {
+    adminTab = tab;
+    document.querySelectorAll('#adminTabs .admin-tab').forEach(b => b.classList.remove('active'));
+    btnEl.classList.add('active');
+    renderAdmin();
+  }
+
+  function renderAdmin() {
+    const activeLoans = adminRecords.filter(r => r.status === '대여중');
+    const overdue = activeLoans.filter(r => overdueInfo(r).overdue);
+    const returning = adminRecords.filter(r => r.status === '반납신청');
+    const unpaid = adminRecords.filter(r => r.paymentConfirmed !== 'Y' && r.status !== '반납완료');
+
+    document.getElementById('adminSummary').innerHTML =
+      '<div class="summary-chip warn"><p class="chip-label">연체중</p><p class="chip-value">' + overdue.length + '건</p></div>' +
+      '<div class="summary-chip"><p class="chip-label">반납신청 대기</p><p class="chip-value">' + returning.length + '건</p></div>' +
+      '<div class="summary-chip"><p class="chip-label">입금확인 대기</p><p class="chip-value">' + unpaid.length + '건</p></div>';
+
+    let list;
+    if (adminTab === 'overdue') list = overdue;
+    else if (adminTab === 'returning') list = returning;
+    else if (adminTab === 'unpaid') list = unpaid;
+    else list = adminRecords.filter(r => r.status !== '반납완료');
+
+    const listEl = document.getElementById('adminList');
+    if (list.length === 0) {
+      listEl.innerHTML = '<p class="empty-loans">해당하는 항목이 없습니다.</p>';
+      return;
+    }
+
+    listEl.innerHTML = list.map(r => {
+      const ov = r.status === '대여중' ? overdueInfo(r) : { overdue: false, days: 0, fee: 0 };
+      const isOverdue = ov.overdue;
+      let info = '<span class="lbl">신청자</span>' + escapeHtml(r.name) + ' · ' + escapeHtml(r.phone) + '<br>' +
+        '<span class="lbl">이용형태</span>' + escapeHtml(r.type) + ' · <span class="lbl">상태</span>' + escapeHtml(r.status);
+      if (r.type === '대여') {
+        info += '<br><span class="lbl">대여일</span>' + fmtDate(r.loanDate) + ' · <span class="lbl">반납예정</span>' + fmtDate(r.dueDate);
+      }
+      if (r.status === '반납신청') {
+        info += '<br><span class="lbl">반납희망</span>' + fmtDate(r.returnRequestDate) + ' ' + escapeHtml(r.returnTimeSlot);
+      }
+      if (isOverdue) {
+        info += '<br><b style="color:var(--overdue-text)">' + ov.days + '일 연체' + (ov.fee > 0 ? ' · 연체료 ' + ov.fee.toLocaleString() + '원' : '') + '</b>';
+      }
+
+      let actions = '';
+      if (r.paymentConfirmed !== 'Y') {
+        actions += '<button class="admin-btn primary" onclick="adminConfirmPay(' + r.row + ')">입금 확인</button>';
+      }
+      if (r.status === '대여중' || r.status === '반납신청') {
+        actions += '<button class="admin-btn" onclick="adminCompleteReturn(' + r.row + ')">반납 완료 처리</button>';
+      }
+      if (isOverdue) {
+        actions += '<button class="admin-btn copy" onclick="copyKakaoText(this, ' + JSON.stringify(r).replace(/"/g, '&quot;') + ')">카톡 문구 복사</button>';
+      }
+
+      return '<div class="admin-row' + (isOverdue ? ' flag' : '') + '">' +
+        '<div class="admin-row-top"><div>' +
+        '<p class="admin-row-title">' + escapeHtml(r.title) + '</p>' +
+        '<p class="admin-row-meta">' + escapeHtml(r.author) + ' · 관리번호 ' + escapeHtml(r.bookId) + '</p>' +
+        '</div></div>' +
+        '<p class="admin-row-info">' + info + '</p>' +
+        '<div class="admin-row-actions">' + actions + '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  async function adminConfirmPay(row) {
+    await postAdminAction_('admin_confirm_pay', row, '입금 확인 처리되었습니다.');
+  }
+
+  async function adminCompleteReturn(row) {
+    await postAdminAction_('admin_complete_return', row, '반납 완료 처리되었습니다.');
+  }
+
+  async function postAdminAction_(action, row, successMsg) {
+    try {
+      const res = await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: action, pw: adminPassword, row: row })
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || '처리 중 문제가 발생했어요.');
+        return;
+      }
+      await refreshAdminRecords();
+    } catch (err) {
+      alert('처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.');
+    }
+  }
+
+  function copyKakaoText(btn, r) {
+    const ov = overdueInfo(r);
+    const text = r.name + '님, 스토리집입니다 :)\n' +
+      '『' + r.title + '』 반납예정일(' + fmtDate(r.dueDate) + ')이 지나 ' + ov.days + '일 연체되었어요.' +
+      (ov.fee > 0 ? ' 연체료는 ' + ov.fee.toLocaleString() + '원입니다.' : '') +
+      '\n반납 부탁드려요. 감사합니다!';
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        const old = btn.textContent;
+        btn.textContent = '복사됨!';
+        setTimeout(() => { btn.textContent = old; }, 1500);
+      });
+    } else {
+      prompt('아래 문구를 복사해주세요:', text);
+    }
+  }
+
+  let applyMode = 'rental';
+
+  function selectMode(mode) {
+    if (mode === 'rental') {
+      const wouldBe = totalCount() + activeLoanCount();
+      if (wouldBe > MAX_TOTAL) {
+        const msg = activeLoanCount() > 0
+          ? '대여는 1인당 최대 ' + MAX_TOTAL + '권까지 가능해요.\n현재 ' + activeLoanCount() + '권을 대여 중이시라, 반납 신청 후 다시 시도해주세요.\n(구매는 권수 제한 없이 가능해요)'
+          : '대여는 1인당 최대 ' + MAX_TOTAL + '권까지 가능해요. 선택한 책 일부를 해제해주세요.\n(구매는 권수 제한 없이 가능해요)';
+        alert(msg);
+        return;
+      }
+    }
+    applyMode = mode;
+    document.getElementById('pillRental').classList.toggle('selected', mode === 'rental');
+    document.getElementById('pillRental').setAttribute('aria-pressed', String(mode === 'rental'));
+    document.getElementById('pillPurchase').classList.toggle('selected', mode === 'purchase');
+    document.getElementById('pillPurchase').setAttribute('aria-pressed', String(mode === 'purchase'));
+    document.getElementById('rentalFlow').style.display = mode === 'rental' ? 'block' : 'none';
+    document.getElementById('purchaseFlow').style.display = mode === 'purchase' ? 'block' : 'none';
+  }
+
+  function toggleSelect(id, title, author, checkbox) {
+    const row = document.getElementById('book-' + id);
+
+    if (checkbox.checked) {
+      selected[id] = { title, author };
+      row.classList.add('is-selected');
+    } else {
+      delete selected[id];
+      row.classList.remove('is-selected');
+    }
+    render();
+  }
+
+  function toggleSelectRec(id, title, author, checkbox) {
+    const card = document.getElementById('rec-' + id);
+
+    if (checkbox.checked) {
+      if (Object.keys(selectedRec).length >= MAX_REC) {
+        alert('이달의 추천도서는 1인당 1권만 대여 가능해요.\n다른 이용자들도 함께 읽을 수 있도록 배려 부탁드려요 :)');
+        checkbox.checked = false;
+        return;
+      }
+      selectedRec[id] = { title, author };
+      card.classList.add('is-selected');
+    } else {
+      delete selectedRec[id];
+      card.classList.remove('is-selected');
+    }
+    render();
+  }
+
+  function render() {
+    const searchIds = Object.keys(selected);
+    const recIds = Object.keys(selectedRec);
+    const count = searchIds.length + recIds.length;
+    const total = count * 1000;
+
+    document.getElementById('cartCount').textContent = '선택한 도서 ' + count + '권';
+    document.getElementById('cartLimitNote').textContent = count > MAX_TOTAL
+      ? '· 대여는 최대 3권까지, 구매는 권수 제한 없어요'
+      : (activeLoanCount() > 0
+          ? '· 대여 중 ' + activeLoanCount() + '권 포함, 최대 3권'
+          : '· 도서 최대 3권까지 선택 가능(구매는 제한 없음)');
+    document.getElementById('applyBtn').disabled = count === 0;
+
+    const pickedList = document.getElementById('pickedList');
+    if (count === 0) {
+      pickedList.innerHTML = '<p class="empty-pick">검색결과나 이달의 추천도서에서 체크박스를 누르면 여기에 표시돼요</p>';
+    } else {
+      const allEntries = [
+        ...recIds.map(id => ({ id, ...selectedRec[id], tag: '추천도서' })),
+        ...searchIds.map(id => ({ id, ...selected[id], tag: null }))
+      ];
+      pickedList.innerHTML = allEntries.map(b => {
+        const tag = b.tag ? ' · ' + b.tag : '';
+        return '<div class="picked-book"><div class="picked-cover"></div><div><p class="picked-title">' + escapeHtml(b.title) + '</p><p class="picked-meta">' + escapeHtml(b.author) + ' · 관리번호 ' + escapeHtml(b.id) + escapeHtml(tag) + '</p></div></div>';
+      }).join('');
+    }
+
+    const priceText = count === 0
+      ? '대여는 한 권에 <b>2주 동안</b> 대여가 되고, 대여비는 <b>1,000원</b>이에요.'
+      : '선택하신 책은 총 <b>' + count + '권</b>이에요. 대여비는 1권당 1,000원이니, 총 <b>' + total.toLocaleString() + '원</b>이에요.';
+    document.getElementById('priceMainText').innerHTML = priceText;
+
+    document.getElementById('payTotal').textContent = total.toLocaleString() + '원';
+  }
+
+  // 초기 렌더링: 카테고리 탭, 정렬 버튼 먼저 표시 → 도서 목록은 실제 시트에서 불러오기
+  renderTabs();
+  document.getElementById('sortDefault').classList.add('active');
+  document.getElementById('resultsList').innerHTML = '<p class="no-results">도서 목록을 불러오는 중이에요...</p>';
+
+  loadBooks();
+  loadRecommend();
+
+  // role="button"을 준 div들(책 카드, 시간대/이용형태 선택 pill)을
+  // 키보드(Enter/Space)만으로도 조작할 수 있게 하는 공통 핸들러 — 요소마다
+  // 따로 붙이지 않고 한 곳에서 처리한다.
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const el = document.activeElement;
+    if (el && el.getAttribute && el.getAttribute('role') === 'button') {
+      e.preventDefault();
+      el.click();
+    }
+  });
+
+  // ESC로 열려있는 모달 닫기 (리뷰 반영 — 포커스 트랩까지는 아니지만 최소한의 키보드 탈출구)
+  const MODAL_IDS = ['loginModal', 'adminPwModal', 'guideModal', 'rentalModal', 'returnModal', 'bookDetailModal'];
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    MODAL_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && getComputedStyle(el).display !== 'none') el.style.display = 'none';
+    });
+  });
+
+  async function loadRecommend() {
+    try {
+      const res = await fetch(APPS_SCRIPT_URL + '?action=recommend');
+      const data = await res.json();
+      if (!data.ok || !data.books || !data.books.length) return;
+      renderRecommend(data);
+    } catch (err) {
+      // 추천도서를 못 불러와도 검색 기능은 그대로 동작해야 하므로 조용히 무시
+    }
+  }
+
+  function renderRecommend(data) {
+    const section = document.getElementById('recommendSection');
+    const monthLabel = data.month ? data.month.replace(/^\d+-0?/, '') + '월' : '';
+    document.getElementById('recommendSub').textContent =
+      (monthLabel ? monthLabel + '의 주제: ' : '') + (data.theme || '');
+
+    const posterUrls = data.posterUrls || [];
+    document.getElementById('recommendPosterGallery').innerHTML = posterUrls
+      .map(url => '<img class="poster-banner" src="' + escapeHtml(url) + '" alt="" loading="lazy">')
+      .join('');
+
+    recBooks = {};
+    data.books.forEach(b => { recBooks[b.id] = b; });
+
+    document.getElementById('recommendScroll').innerHTML = data.books.map(b => {
+      const coverHtml = b.coverUrl ? '<img src="' + escapeHtml(b.coverUrl) + '" alt="" loading="lazy">' : '';
+      const descHtml = b.description ? '<p class="rec-desc">' + escapeHtml(b.description) + '</p>' : '';
+      return '<div class="rec-card" id="rec-' + b.id + '" onclick="openBookDetail(\'' + b.id + '\')" ' +
+        'tabindex="0" role="button" aria-label="' + escapeHtml(b.title) + ' 상세 보기">' +
+        '<label class="rec-check">' +
+        '<input type="checkbox" class="pick-checkbox" aria-label="' + escapeHtml(b.title) + ' 선택" onclick="event.stopPropagation()" onchange="toggleSelectRec(\'' + b.id + '\',\'' + jsAttr(b.title) + '\',\'' + jsAttr(b.author) + '\',this)">' +
+        '</label>' +
+        '<div class="rec-month">' + (data.month || '') + '</div>' +
+        '<div class="rec-cover">' + coverHtml + '</div>' +
+        '<p class="rec-title">' + escapeHtml(b.title) + '</p>' +
+        '<p class="rec-author">' + escapeHtml(b.author) + '</p>' + descHtml +
+        '</div>';
+    }).join('');
+
+    section.style.display = 'block';
+  }
+
+  async function loadBooks() {
+    try {
+      const [booksRes, statusRes] = await Promise.all([
+        fetch(APPS_SCRIPT_URL + '?action=books'),
+        fetch(APPS_SCRIPT_URL + '?action=status')
+      ]);
+      const booksData = await booksRes.json();
+      const statusData = await statusRes.json();
+      if (booksData.ok) {
+        BOOKS = booksData.books;
+        booksLoaded = true;
+      } else {
+        throw new Error(booksData.error || '알 수 없는 오류');
+      }
+      if (statusData.ok) {
+        liveStatus = statusData.status;
+      }
+    } catch (err) {
+      document.getElementById('resultsList').innerHTML =
+        '<p class="no-results">도서 목록을 불러오지 못했어요.<br>잠시 후 다시 시도해주세요.</p>';
+      return;
+    }
+    renderResults();
+  }
+
+  document.getElementById('searchInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') doSearch();
+  });
+</script>
+
+</body>
+</html>
