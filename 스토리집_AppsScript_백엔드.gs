@@ -599,7 +599,12 @@ function applyBooks(payload) {
       sheet.appendRow([
         Utilities.getUuid(),
         name,
-        phone,
+        // 앞의 '(작은따옴표)는 시트에 저장은 안 되고 "이 값은 숫자로 변환하지 말고
+        // 텍스트 그대로 저장하라"는 표시다 — 안 붙이면 스프레드시트가 "010-..."을
+        // 숫자로 인식해 맨 앞 0을 지워버린다. 그러면 이후 모든 조회가
+        // normalizePhone_()로 재정규화한 값과 맞지 않아 "내 대여목록"·중복대여
+        // 검사가 전부 깨진다(단순 표시 문제가 아니라 매칭 자체가 틀어짐).
+        "'" + phone,
         it.bookId,
         it.title,
         it.author,
