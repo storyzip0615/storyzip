@@ -56,6 +56,7 @@ function doPost(e) {
     if (payload.action === 'admin_records') return getAdminRecords(payload);
     if (payload.action === 'admin_confirm_pay') return adminConfirmPay(payload);
     if (payload.action === 'admin_complete_return') return adminCompleteReturn(payload);
+    if (payload.action === 'admin_complete_purchase') return adminCompletePurchase(payload);
     return jsonOut({ ok: false, error: '알 수 없는 요청입니다.' });
   } catch (err) {
     console.error('doPost error: ' + err);
@@ -603,7 +604,7 @@ function applyBooks(payload) {
         it.title,
         it.author,
         type,
-        type === '대여' ? now : '',
+        now,
         type === '대여' ? dueDate : '',
         type === '대여' ? '대여중' : '구매신청',
         '',
@@ -703,6 +704,17 @@ function adminCompleteReturn(payload) {
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
     const col = headers.indexOf('상태') + 1;
     sheet.getRange(payload.row, col).setValue('반납완료');
+    return jsonOut({ ok: true });
+  });
+}
+
+// ── 관리자: 구매 완료 처리 ──
+function adminCompletePurchase(payload) {
+  return withAdminLock_(payload, function () {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LOANS);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+    const col = headers.indexOf('상태') + 1;
+    sheet.getRange(payload.row, col).setValue('구매완료');
     return jsonOut({ ok: true });
   });
 }

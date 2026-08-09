@@ -1904,7 +1904,7 @@
     const activeLoans = adminRecords.filter(r => r.status === '대여중');
     const overdue = activeLoans.filter(r => overdueInfo(r).overdue);
     const returning = adminRecords.filter(r => r.status === '반납신청');
-    const unpaid = adminRecords.filter(r => r.paymentConfirmed !== 'Y' && r.status !== '반납완료');
+    const unpaid = adminRecords.filter(r => r.paymentConfirmed !== 'Y' && r.status !== '반납완료' && r.status !== '구매완료');
 
     document.getElementById('adminSummary').innerHTML =
       '<div class="summary-chip warn"><p class="chip-label">연체중</p><p class="chip-value">' + overdue.length + '건</p></div>' +
@@ -1915,7 +1915,7 @@
     if (adminTab === 'overdue') list = overdue;
     else if (adminTab === 'returning') list = returning;
     else if (adminTab === 'unpaid') list = unpaid;
-    else list = adminRecords.filter(r => r.status !== '반납완료');
+    else list = adminRecords.filter(r => r.status !== '반납완료' && r.status !== '구매완료');
 
     const listEl = document.getElementById('adminList');
     if (list.length === 0) {
@@ -1945,6 +1945,9 @@
       if (r.status === '대여중' || r.status === '반납신청') {
         actions += '<button class="admin-btn" onclick="adminCompleteReturn(' + r.row + ')">반납 완료 처리</button>';
       }
+      if (r.status === '구매신청') {
+        actions += '<button class="admin-btn" onclick="adminCompletePurchase(' + r.row + ')">구매 완료 처리</button>';
+      }
       if (isOverdue) {
         actions += '<button class="admin-btn copy" onclick="copyKakaoText(this, ' + JSON.stringify(r).replace(/"/g, '&quot;') + ')">카톡 문구 복사</button>';
       }
@@ -1966,6 +1969,10 @@
 
   async function adminCompleteReturn(row) {
     await postAdminAction_('admin_complete_return', row, '반납 완료 처리되었습니다.');
+  }
+
+  async function adminCompletePurchase(row) {
+    await postAdminAction_('admin_complete_purchase', row, '구매 완료 처리되었습니다.');
   }
 
   async function postAdminAction_(action, row, successMsg) {
