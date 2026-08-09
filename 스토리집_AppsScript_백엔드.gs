@@ -260,8 +260,14 @@ function getMyLoans(phone) {
   if (!phone) return jsonOut({ ok: true, loans: [] });
   const normalizedPhone = normalizePhone_(phone);
   const { rows } = readSheetAsObjects(SHEET_LOANS);
+  // 대여는 반납 전까지("반납완료" 이전) 계속 보여주고, 구매는 관리자가 "구매완료"
+  // 처리한 뒤에만 "구매하신 도서"에 노출한다(프론트 index.html의 rentalLoans/purchases
+  // 분리 로직이 이 전제를 그대로 따른다 — 구매신청 단계는 아직 마이페이지에 안 뜬다).
   const loans = rows
-    .filter(r => r['이용형태'] === '대여' && normalizePhone_(r['전화번호']) === normalizedPhone && r['상태'] !== '반납완료')
+    .filter(r => normalizePhone_(r['전화번호']) === normalizedPhone && (
+      (r['이용형태'] === '대여' && r['상태'] !== '반납완료') ||
+      (r['이용형태'] === '구매' && r['상태'] === '구매완료')
+    ))
     .map(r => ({
       row: r.row,
       bookId: String(r['도서관리번호']),
