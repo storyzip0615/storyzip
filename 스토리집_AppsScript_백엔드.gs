@@ -197,6 +197,20 @@ function truncateDesc_(text, maxLen) {
   return codepoints.slice(0, maxLen).join('') + '…';
 }
 
+// ── 삭제됨 플래그(ISSUE-2) ──
+// 시트1에 중복 등록·오등록된 도서를 실제로 행 삭제하면 대여기록(도서관리번호로 연결)이
+// 가리키는 대상이 사라져 과거 이력이 깨진다. 그래서 행을 지우지 않고 '삭제됨' 열 값으로
+// 목록·추천에서만 숨긴다(개별 상세조회·기존 링크는 계속 유효 — getBookDetail은 필터 미적용).
+// ★헤더명은 정확히 '삭제됨'이어야 한다 — 시트1에 이 열이 아직 없다면 오너가 헤더 행에
+// 직접 추가해야 이 기능이 실제로 동작한다(열이 없으면 하위호환으로 전부 미삭제 취급).
+function isDeletedRow_(r) {
+  const v = r['삭제됨'];
+  if (v === undefined || v === null || v === '') return false; // 컬럼 없음/빈값 = 미삭제(하위호환)
+  if (v === true) return true; // 체크박스 열은 boolean true로 들어올 수 있음
+  const s = String(v).trim().toUpperCase();
+  return s === 'Y' || s === 'TRUE';
+}
+
 // ── 도서 목록 ──
 function getBooks() {
   const cacheKey = cacheBucketKey_('books_cache');
@@ -205,7 +219,7 @@ function getBooks() {
 
   const { rows } = readSheetAsObjects(SHEET_BOOKS);
   const books = rows
-    .filter(r => String(r['제목'] || '').trim())
+    .filter(r => String(r['제목'] || '').trim() && !isDeletedRow_(r))
     .map(r => ({
       id: String(r['구분']),
       title: String(r['제목'] || ''),
@@ -347,7 +361,7 @@ function getRecommend() {
       if (!b) console.error('추천도서 시트의 관리번호 "' + id + '"에 해당하는 책을 시트1에서 찾을 수 없습니다 — 오타이거나 시트1에서 삭제된 책일 수 있습니다.');
       return b;
     })
-    .filter(r => r)
+    .filter(r => r && !isDeletedRow_(r)) // 삭제됨 도서는 추천도서 결과에서도 자동 제외(ISSUE-2)
     .map(r => ({
       id: String(r['구분']),
       title: r['제목'],
@@ -739,6 +753,7 @@ function onOpen() {
   SpreadsheetApp.getUi().addMenu('스토리집', [
     { name: '① 신간 자동화 켜기 (최초 1회만 실행)', functionName: 'installEditTrigger' },
     { name: '표지·소개 다시 채우기 (ISBN 입력된 행 전체)', functionName: 'fillAllMissingCovers' },
+    { name: '전화번호 형식 점검', functionName: 'checkPhoneFormats' },
   ]);
 }
 
@@ -869,5 +884,33 @@ function fillAllMissingCovers() {
     SpreadsheetApp.getUi().alert('시간이 오래 걸려서 일부만 처리하고 멈췄습니다(' + processed + '건 처리). 메뉴를 다시 눌러 이어서 진행해주세요.');
   } else {
     SpreadsheetApp.getUi().alert('표지·소개 채우기를 완료했습니다(' + processed + '건 처리).');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 전화번호 형식 점검 (ISSUE-5): 08-09 배포로 신규 신청 저장 시 앞자리 0 소실은 근본
+// 차단됐지만(신청 저장 시 작은따옴표를 붙여 텍스트로 강제 — applyBooks 참고), 그 이전에
+// 입력된 오염 데이터(스프레드시트가 "010..."을 숫자로 인식해 앞자리 0이 사라진 값)가
+// 대여기록 시트에 남아있을 수 있다. 이 도구는 그 잔존 오염을 찾아내는 감사용이다.
+// ★공개 HTTP 엔드포인트(doGet/doPost)에는 절대 연결하지 않는다 — 오직 Apps Script 편집기의
+// 커스텀 메뉴(스프레드시트를 연 사람만 실행 가능)로만 접근 가능하다. 그래서 알림에도
+// 이름·전화번호 등 개인정보 자체는 노출하지 않고 행번호만 보여준다(오너가 시트에서 직접
+// 열어보는 것을 전제로 한 설계 — 공개 GET으로 전화번호 데이터를 노출하지 않으면서도
+// 감사를 가능하게 하는 핵심).
+function checkPhoneFormats() {
+  const { rows } = readSheetAsObjects(SHEET_LOANS);
+  const badRows = [];
+  rows.forEach(r => {
+    const normalized = normalizePhone_(r['전화번호']);
+    // 정상 한국 휴대폰은 '01'로 시작하는 11자리 숫자다 — 이 조건을 벗어나면 앞자리 0
+    // 소실 등 오염 데이터로 의심한다.
+    if (normalized.length !== 11 || normalized.indexOf('01') !== 0) {
+      badRows.push(r.row);
+    }
+  });
+  if (badRows.length === 0) {
+    SpreadsheetApp.getUi().alert('전화번호 형식 점검: 이상 없음.');
+  } else {
+    SpreadsheetApp.getUi().alert('의심 행: ' + badRows.length + '건 (행번호: ' + badRows.join(', ') + ')');
   }
 }

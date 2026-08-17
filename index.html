@@ -1916,7 +1916,7 @@
     const activeLoans = adminRecords.filter(r => r.status === '대여중');
     const overdue = activeLoans.filter(r => overdueInfo(r).overdue);
     const returning = adminRecords.filter(r => r.status === '반납신청');
-    const unpaid = adminRecords.filter(r => r.paymentConfirmed !== 'Y' && r.status !== '반납완료' && r.status !== '구매완료');
+    const unpaid = adminRecords.filter(r => r.paymentConfirmed !== 'Y');
 
     document.getElementById('adminSummary').innerHTML =
       '<div class="summary-chip warn"><p class="chip-label">연체중</p><p class="chip-value">' + overdue.length + '건</p></div>' +
