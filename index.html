@@ -564,6 +564,22 @@
     margin-bottom: 8px;
   }
   .picked-book:last-child { margin-bottom: 0; }
+  .picked-info { flex: 1; min-width: 0; }
+  .picked-remove {
+    width: 44px;
+    height: 44px;
+    margin-left: auto;
+    flex-shrink: 0;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: var(--card);
+    color: var(--text-soft);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .picked-remove:hover { border-color: var(--wood); color: var(--wood-dark); }
   .empty-pick {
     font-size: 13.5px;
     color: var(--text-soft);
@@ -612,19 +628,10 @@
   }
 
   .pay-box {
-    display: flex;
-    gap: 16px;
-    align-items: center;
     background: var(--ivory);
     border: 1px dashed var(--wood);
     border-radius: 10px;
     padding: 18px 20px;
-  }
-  .qr-placeholder {
-    width: 76px; height: 76px;
-    background: repeating-conic-gradient(#4A3220 0% 25%, #F8F4EC 0% 50%) 0 0/16px 16px;
-    border-radius: 6px;
-    flex-shrink: 0;
   }
   .pay-info p { margin: 0 0 4px; font-size: 14px; }
   .pay-info .account { font-weight: 700; color: var(--wood-dark); font-size: 16px; }
@@ -669,6 +676,19 @@
     margin: 0 0 8px;
     font-weight: 700;
   }
+  .logout-btn {
+    display: block;
+    margin: 24px auto 0;
+    padding: 8px 18px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--card);
+    color: var(--text-soft);
+    font-size: 13px;
+    font-family: 'Noto Sans KR', sans-serif;
+    cursor: pointer;
+  }
+  .logout-btn:hover { border-color: var(--wood); color: var(--wood-dark); }
 
   .modal-overlay {
     display: none;
@@ -874,7 +894,6 @@
     .form-row input[type=text], #returnDate { font-size: 15px; padding: 12px 14px; }
     .radio-pill { font-size: 14px; padding: 12px 8px; }
     .price-box, .purchase-note { padding: 14px 16px; font-size: 13.5px; }
-    .pay-box { flex-direction: column; align-items: flex-start; gap: 12px; }
     .pay-info .account { font-size: 15px; }
 
     .summary-chip { padding: 10px 12px; min-width: 100px; }
@@ -1119,6 +1138,7 @@
         <h3 class="mypage-subtitle">구매하신 도서</h3>
         <div id="myPurchasesList"></div>
       </div>
+      <button class="logout-btn" type="button" onclick="logout()">로그아웃</button>
     </section>
   </div>
 
@@ -1157,7 +1177,6 @@
         </div>
 
         <div class="pay-box">
-          <div class="qr-placeholder"></div>
           <div class="pay-info">
             <p>계좌이체로 결제해주세요</p>
             <p class="account">카카오뱅크 3333-21-3960242</p>
@@ -1436,6 +1455,7 @@
   let myLoansLoadFailed = false;
   let returningBookId = null;
   let returnTimeSlot = '오전 (10~13시)';
+  let userSessionSeq = 0;
 
   function daysBetween(a, b) {
     return Math.floor((a - b) / (1000 * 60 * 60 * 24));
@@ -1517,6 +1537,7 @@
       alert('전화번호 형식을 확인해주세요. 예: 010-1234-5678');
       return;
     }
+    userSessionSeq += 1;
     currentUser = { name: name, phone: phone };
     document.getElementById('loginBtnText').textContent = name + '님';
     document.getElementById('loginModal').style.display = 'none';
@@ -1529,10 +1550,13 @@
 
   async function refreshMyLoans() {
     if (!currentUser) return;
+    const requestSessionSeq = userSessionSeq;
+    const requestPhone = currentUser.phone;
     myLoansLoadFailed = false;
     try {
-      const res = await fetch(APPS_SCRIPT_URL + '?action=myloans&phone=' + encodeURIComponent(currentUser.phone));
+      const res = await fetch(APPS_SCRIPT_URL + '?action=myloans&phone=' + encodeURIComponent(requestPhone));
       const data = await res.json();
+      if (!currentUser || userSessionSeq !== requestSessionSeq || currentUser.phone !== requestPhone) return;
       if (data.ok) {
         myLoans = data.loans.map(l => ({
           row: l.row, bookId: l.bookId, title: l.title, author: l.author,
@@ -1543,6 +1567,7 @@
         myLoansLoadFailed = true;
       }
     } catch (err) {
+      if (!currentUser || userSessionSeq !== requestSessionSeq || currentUser.phone !== requestPhone) return;
       // 네트워크 오류 — 화면에 안내 표시(무피드백 방지). 기존 목록은 유지.
       myLoansLoadFailed = true;
     }
@@ -1561,6 +1586,27 @@
     document.getElementById('pageMypage').style.display = 'none';
     document.getElementById('pageSearch').style.display = 'block';
     window.scrollTo(0, 0);
+  }
+
+  function logout() {
+    userSessionSeq += 1;
+    currentUser = null;
+    myLoans = [];
+    myLoansLoadFailed = false;
+    returningBookId = null;
+    returnTimeSlot = '오전 (10~13시)';
+
+    document.getElementById('loginBtnText').textContent = '로그인';
+    document.getElementById('loginName').value = '';
+    document.getElementById('loginPhone').value = '';
+    document.getElementById('mypageWho').textContent = '';
+    document.getElementById('mypageSummary').innerHTML = '';
+    document.getElementById('myLoansList').innerHTML = '';
+    document.getElementById('myPurchasesList').innerHTML = '';
+    document.getElementById('myPurchasesWrap').style.display = 'none';
+
+    goBackFromMypage();
+    renderResults();
   }
 
   function renderMypage() {
@@ -2074,6 +2120,28 @@
     render();
   }
 
+  function removePicked(id, isRecommended) {
+    const source = isRecommended ? selectedRec : selected;
+    const book = source[id];
+    if (!book) return;
+
+    const card = document.getElementById((isRecommended ? 'rec-' : 'book-') + id);
+    const checkbox = card ? card.querySelector('.pick-checkbox') : null;
+    if (checkbox) {
+      checkbox.checked = false;
+      if (isRecommended) {
+        toggleSelectRec(id, book.title, book.author, checkbox);
+      } else {
+        toggleSelect(id, book.title, book.author, checkbox);
+      }
+      return;
+    }
+
+    delete source[id];
+    renderResults();
+    render();
+  }
+
   function render() {
     const searchIds = Object.keys(selected);
     const recIds = Object.keys(selectedRec);
@@ -2098,7 +2166,9 @@
       ];
       pickedList.innerHTML = allEntries.map(b => {
         const tag = b.tag ? ' · ' + b.tag : '';
-        return '<div class="picked-book"><div class="picked-cover"></div><div><p class="picked-title">' + escapeHtml(b.title) + '</p><p class="picked-meta">' + escapeHtml(b.author) + ' · 관리번호 ' + escapeHtml(b.id) + escapeHtml(tag) + '</p></div></div>';
+        const isRecommended = !!b.tag;
+        return '<div class="picked-book"><div class="picked-cover"></div><div class="picked-info"><p class="picked-title">' + escapeHtml(b.title) + '</p><p class="picked-meta">' + escapeHtml(b.author) + ' · 관리번호 ' + escapeHtml(b.id) + escapeHtml(tag) + '</p></div>' +
+          '<button class="picked-remove" type="button" aria-label="' + escapeHtml(b.title) + ' 선택 해제" onclick="removePicked(\'' + jsAttr(b.id) + '\',' + isRecommended + ')">×</button></div>';
       }).join('');
     }
 
