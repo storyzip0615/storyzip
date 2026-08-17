@@ -474,6 +474,9 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+  .rec-status { margin-top: 10px; }
+  .rec-status .status { font-size: 11px; padding: 4px 8px; }
+  .rec-status .due-note { font-size: 10.5px; }
   .rec-note {
     font-size: 14px;
     color: var(--text-soft);
@@ -1247,6 +1250,7 @@
   let booksLoaded = false;
   const CATEGORIES = ['소설','에세이','그림책/동화','인문학','시','기독교','자기계발/심리','예술'];
   let liveStatus = {}; // bookId -> {dueDate} for currently checked-out books (실제 대여기록 기반)
+  let liveStatusReady = false;
   const PAGE_SIZE = 10;
 
   let currentCat = '전체';
@@ -1297,6 +1301,16 @@
   function fmtDateShort_(str) {
     const d = new Date(str);
     return (d.getMonth() + 1) + '/' + d.getDate();
+  }
+
+  function bookStatusHtml(st) {
+    if (st.status === 'available') {
+      return '<span class="status available">대출 가능</span>';
+    }
+    if (st.status === 'unavailable') {
+      return '<span class="status unavailable">대출중</span><p class="due-note">반납예정일 ' + st.due + '</p>';
+    }
+    return '<span class="status overdue">연체중 (' + st.days + '일)</span><p class="due-note">반납예정일 ' + st.due + '</p>';
   }
 
   function getFilteredSorted() {
@@ -1373,18 +1387,9 @@
     document.getElementById('resultsList').innerHTML = pageItems.map(b => {
       const st = getStatus(b.id);
       const isSelected = !!selected[b.id];
-      let statusHtml, checkboxHtml;
+      const statusHtml = bookStatusHtml(st);
       const ariaLabel = escapeHtml(b.title) + ' 선택';
-      if (st.status === 'available') {
-        statusHtml = '<span class="status available">대출 가능</span>';
-        checkboxHtml = '<input type="checkbox" class="pick-checkbox" aria-label="' + ariaLabel + '" ' + (isSelected ? 'checked' : '') + ' onclick="event.stopPropagation()" onchange="toggleSelect(\'' + b.id + '\',\'' + jsAttr(b.title) + '\',\'' + jsAttr(b.author) + '\',this)">';
-      } else if (st.status === 'unavailable') {
-        statusHtml = '<span class="status unavailable">대출중</span><p class="due-note">반납예정일 ' + st.due + '</p>';
-        checkboxHtml = '<input type="checkbox" class="pick-checkbox" aria-label="' + ariaLabel + '" disabled>';
-      } else {
-        statusHtml = '<span class="status overdue">연체중 (' + st.days + '일)</span><p class="due-note">반납예정일 ' + st.due + '</p>';
-        checkboxHtml = '<input type="checkbox" class="pick-checkbox" aria-label="' + ariaLabel + '" disabled>';
-      }
+      const checkboxHtml = '<input type="checkbox" class="pick-checkbox" aria-label="' + ariaLabel + '" ' + (isSelected ? 'checked' : '') + ' onclick="event.stopPropagation()" onchange="toggleSelect(\'' + b.id + '\',\'' + jsAttr(b.title) + '\',\'' + jsAttr(b.author) + '\',this)">';
       const coverHtml = b.coverUrl
         ? '<img src="' + escapeHtml(b.coverUrl) + '" alt="" loading="lazy" onerror="this.parentElement.innerHTML=\'\'">'
         : '';
@@ -1515,6 +1520,29 @@
 
   function totalCount() {
     return Object.keys(selected).length + Object.keys(selectedRec).length;
+  }
+
+  function getUnavailableSelectedBook() {
+    const entries = [
+      ...Object.keys(selectedRec).map(id => ({ id, title: selectedRec[id].title })),
+      ...Object.keys(selected).map(id => ({ id, title: selected[id].title }))
+    ];
+    return entries.find(b => getStatus(b.id).status !== 'available') || null;
+  }
+
+  function rentalUnavailableMessage(book) {
+    return '『' + book.title + '』은(는) 현재 대출 중이라 대여할 수 없어요.\n구매(포장도서)는 가능해요.';
+  }
+
+  function validateRentalAvailability() {
+    if (!liveStatusReady) {
+      alert('대출 상태를 확인하고 있어요. 잠시 후 다시 시도해주세요.');
+      return false;
+    }
+    const unavailable = getUnavailableSelectedBook();
+    if (!unavailable) return true;
+    alert(rentalUnavailableMessage(unavailable));
+    return false;
   }
 
   function openLoginOrMypage() {
@@ -1791,6 +1819,7 @@
     }
 
     if (applyMode === 'rental') {
+      if (!validateRentalAvailability()) return;
       const wouldBe = items.length + activeLoanCount();
       if (wouldBe > MAX_TOTAL) {
         alert('대여는 1인당 최대 ' + MAX_TOTAL + '권까지 가능해요.\n(구매는 권수 제한 없이 가능해요)');
@@ -1852,6 +1881,15 @@
     // 구매는 무제한이라 체크박스에서 미리 막을 수 없다) 신청서에서 잘못된 대여가
     // 계산되지 않도록 구매 모드로 미리 전환해 안내한다.
     const count = Object.keys(selected).length + Object.keys(selectedRec).length;
+    if (applyMode === 'rental' && !liveStatusReady) {
+      validateRentalAvailability();
+      return;
+    }
+    const unavailable = getUnavailableSelectedBook();
+    if (applyMode === 'rental' && unavailable) {
+      selectMode('purchase');
+      alert(rentalUnavailableMessage(unavailable) + '\n신청 화면을 구매로 전환했어요.');
+    }
     if (applyMode === 'rental' && count + activeLoanCount() > MAX_TOTAL) {
       selectMode('purchase');
       alert('선택하신 도서가 ' + count + '권이라 대여 대신 구매(포장도서)로 전환했어요.\n대여는 1인당 최대 ' + MAX_TOTAL + '권까지 가능해요.');
@@ -2071,6 +2109,7 @@
 
   function selectMode(mode) {
     if (mode === 'rental') {
+      if (!validateRentalAvailability()) return;
       const wouldBe = totalCount() + activeLoanCount();
       if (wouldBe > MAX_TOTAL) {
         const msg = activeLoanCount() > 0
@@ -2235,11 +2274,14 @@
     });
   });
 
+  let recommendData = null;
+
   async function loadRecommend() {
     try {
       const res = await fetch(APPS_SCRIPT_URL + '?action=recommend');
       const data = await res.json();
       if (!data.ok || !data.books || !data.books.length) return;
+      recommendData = data;
       renderRecommend(data);
     } catch (err) {
       // 추천도서를 못 불러와도 검색 기능은 그대로 동작해야 하므로 조용히 무시
@@ -2261,17 +2303,21 @@
     data.books.forEach(b => { recBooks[b.id] = b; });
 
     document.getElementById('recommendScroll').innerHTML = data.books.map(b => {
+      const st = getStatus(b.id);
+      const isSelected = !!selectedRec[b.id];
+      const statusHtml = bookStatusHtml(st);
       const coverHtml = b.coverUrl ? '<img src="' + escapeHtml(b.coverUrl) + '" alt="" loading="lazy">' : '';
       const descHtml = b.description ? '<p class="rec-desc">' + escapeHtml(b.description) + '</p>' : '';
-      return '<div class="rec-card" id="rec-' + b.id + '" onclick="openBookDetail(\'' + b.id + '\')" ' +
+      return '<div class="rec-card' + (isSelected ? ' is-selected' : '') + '" id="rec-' + b.id + '" onclick="openBookDetail(\'' + b.id + '\')" ' +
         'tabindex="0" role="button" aria-label="' + escapeHtml(b.title) + ' 상세 보기">' +
         '<label class="rec-check">' +
-        '<input type="checkbox" class="pick-checkbox" aria-label="' + escapeHtml(b.title) + ' 선택" onclick="event.stopPropagation()" onchange="toggleSelectRec(\'' + b.id + '\',\'' + jsAttr(b.title) + '\',\'' + jsAttr(b.author) + '\',this)">' +
+        '<input type="checkbox" class="pick-checkbox" aria-label="' + escapeHtml(b.title) + ' 선택" ' + (isSelected ? 'checked' : '') + ' onclick="event.stopPropagation()" onchange="toggleSelectRec(\'' + b.id + '\',\'' + jsAttr(b.title) + '\',\'' + jsAttr(b.author) + '\',this)">' +
         '</label>' +
         '<div class="rec-month">' + (data.month || '') + '</div>' +
         '<div class="rec-cover">' + coverHtml + '</div>' +
         '<p class="rec-title">' + escapeHtml(b.title) + '</p>' +
         '<p class="rec-author">' + escapeHtml(b.author) + '</p>' + descHtml +
+        '<div class="rec-status">' + statusHtml + '</div>' +
         '</div>';
     }).join('');
 
@@ -2302,6 +2348,7 @@
       }
       if (statusData.ok) {
         liveStatus = statusData.status;
+        liveStatusReady = true;
       }
     } catch (err) {
       // stale-while-revalidate로 이미 캐시된 목록을 화면에 보여주고 있었다면, 재검증
@@ -2313,6 +2360,7 @@
       return;
     }
     renderResults();
+    if (recommendData) renderRecommend(recommendData);
   }
 
   document.getElementById('searchInput').addEventListener('keydown', function (e) {
