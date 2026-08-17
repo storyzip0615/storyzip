@@ -573,6 +573,11 @@ function applyBooks(payload) {
     seenBookIds.add(bookId);
     const book = bookById[bookId];
     if (!book) return jsonOut({ ok: false, error: '선택한 도서 중 존재하지 않는 항목이 있어요. 새로고침 후 다시 시도해주세요.' });
+    // 삭제됨=Y인 도서는 목록·추천에서는 숨겨지지만 bookById 조회 자체는 여전히
+    // 성공하므로, 조작된 POST나 최대 60초 캐시에 남아있던 화면을 통해 book id를
+    // 직접 알고 있으면 여전히 신청이 성립할 수 있었다(reviewer-codex R1 REVISE
+    // 하드닝). 다른 신청 실패(미존재 도서 등)와 같은 방식으로 요청 전체를 거절한다.
+    if (isDeletedRow_(book)) return jsonOut({ ok: false, error: '현재 신청할 수 없는 도서예요.' });
     resolvedItems.push({
       bookId: bookId,
       title: String(book['제목'] || ''),
@@ -897,14 +902,19 @@ function fillAllMissingCovers() {
 // 이름·전화번호 등 개인정보 자체는 노출하지 않고 행번호만 보여준다(오너가 시트에서 직접
 // 열어보는 것을 전제로 한 설계 — 공개 GET으로 전화번호 데이터를 노출하지 않으면서도
 // 감사를 가능하게 하는 핵심).
+// ★판정기준은 반드시 isValidPhone_()(서버가 실제 신청 검증에 쓰는 함수)를 그대로
+// 재사용한다 — 이 함수가 예전에 독자적으로 "정규화 후 11자리·'01' 시작"을 판정했더니
+// isValidPhone_이 정상으로 받아들이는 011-XXX-XXXX(10자리) 등을 오탐하고, 반대로
+// isValidPhone_이 애초에 거부하는 015-XXXX-XXXX(허용 접두사 010/011/016~019 아님) 같은
+// 값은 놓치는 불일치가 있었다(reviewer-codex R1 REVISE). 판정 로직을 두 곳에 따로
+// 두면 한쪽만 고쳤을 때 다시 드리프트하므로, 이 함수는 자체 정규식을 갖지 않고
+// isValidPhone_() 하나에만 의존한다. 정규화된 값이 아니라 시트 원본 값을 그대로
+// 넘긴다 — isValidPhone_ 자체가 하이픈 유무를 허용하는 정규식이라 그럴 필요가 없다.
 function checkPhoneFormats() {
   const { rows } = readSheetAsObjects(SHEET_LOANS);
   const badRows = [];
   rows.forEach(r => {
-    const normalized = normalizePhone_(r['전화번호']);
-    // 정상 한국 휴대폰은 '01'로 시작하는 11자리 숫자다 — 이 조건을 벗어나면 앞자리 0
-    // 소실 등 오염 데이터로 의심한다.
-    if (normalized.length !== 11 || normalized.indexOf('01') !== 0) {
+    if (!isValidPhone_(r['전화번호'])) {
       badRows.push(r.row);
     }
   });
