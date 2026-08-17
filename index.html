@@ -1251,6 +1251,7 @@
   const CATEGORIES = ['소설','에세이','그림책/동화','인문학','시','기독교','자기계발/심리','예술'];
   let liveStatus = {}; // bookId -> {dueDate} for currently checked-out books (실제 대여기록 기반)
   let liveStatusReady = false;
+  let loadBooksSeq = 0;
   const PAGE_SIZE = 10;
 
   let currentCat = '전체';
@@ -1883,10 +1884,6 @@
     // 구매는 무제한이라 체크박스에서 미리 막을 수 없다) 신청서에서 잘못된 대여가
     // 계산되지 않도록 구매 모드로 미리 전환해 안내한다.
     const count = Object.keys(selected).length + Object.keys(selectedRec).length;
-    if (applyMode === 'rental' && !liveStatusReady) {
-      validateRentalAvailability();
-      return;
-    }
     const unavailable = getUnavailableSelectedBook();
     if (applyMode === 'rental' && unavailable) {
       selectMode('purchase');
@@ -2327,6 +2324,8 @@
   }
 
   async function loadBooks() {
+    const requestSeq = ++loadBooksSeq;
+    liveStatusReady = false;
     try {
       const [booksRes, statusRes] = await Promise.all([
         fetch(APPS_SCRIPT_URL + '?action=books'),
@@ -2334,6 +2333,7 @@
       ]);
       const booksData = await booksRes.json();
       const statusData = await statusRes.json();
+      if (requestSeq !== loadBooksSeq) return;
       if (booksData.ok) {
         BOOKS = booksData.books;
         booksLoaded = true;
@@ -2348,11 +2348,15 @@
       } else {
         throw new Error(booksData.error || '알 수 없는 오류');
       }
-      if (statusData.ok) {
+      if (statusData.ok === true) {
         liveStatus = statusData.status;
         liveStatusReady = true;
+      } else {
+        liveStatusReady = false;
       }
     } catch (err) {
+      if (requestSeq !== loadBooksSeq) return;
+      liveStatusReady = false;
       // stale-while-revalidate로 이미 캐시된 목록을 화면에 보여주고 있었다면, 재검증
       // 실패로 그 화면을 지우지 않는다(완전 실패보다 낡은 데이터라도 보여주는 게 낫다).
       if (!renderedFromCache) {
