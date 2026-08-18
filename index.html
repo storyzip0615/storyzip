@@ -1880,6 +1880,16 @@
       document.getElementById('applyPhone').value = currentUser.phone;
     }
 
+    // 대출 상태가 아직 준비되지 않았으면(!liveStatusReady) 기본값인 '대여' 모드로
+    // 신청화면이 열리지 않게 조용히 구매 모드로 전환한다 — 대여 제출 자체는 이미
+    // fail-closed로 막혀 있지만(selectMode·submitApply), reviewer-codex R2 REVISE
+    // 지적대로 '대여 진입' 자체도 상태 확정 전에는 보이지 않아야 한다. alert 없이
+    // 조용히 전환한다(상태 미준비는 보통 1~2초 내 해소되는 일시적 로딩 상태라
+    // 사용자에게 경고성 알림을 띄울 정도는 아니라고 판단).
+    if (!liveStatusReady && applyMode === 'rental') {
+      selectMode('purchase');
+    }
+
     // 대여 기본모드인 채로 3권을 넘겨 들어오면(선택 단계에는 권수 제한이 없음 —
     // 구매는 무제한이라 체크박스에서 미리 막을 수 없다) 신청서에서 잘못된 대여가
     // 계산되지 않도록 구매 모드로 미리 전환해 안내한다.
