@@ -755,11 +755,14 @@ function adminCompletePurchase(payload) {
 // ═══════════════════════════════════════════════════════════════
 
 function onOpen() {
-  SpreadsheetApp.getUi().addMenu('스토리집', [
-    { name: '① 신간 자동화 켜기 (최초 1회만 실행)', functionName: 'installEditTrigger' },
-    { name: '표지·소개 다시 채우기 (ISBN 입력된 행 전체)', functionName: 'fillAllMissingCovers' },
-    { name: '전화번호 형식 점검', functionName: 'checkPhoneFormats' },
-  ]);
+  // Ui.addMenu()는 존재하지 않는 옛날 문법(구 Spreadsheet.addMenu()와 혼동)이라
+  // "addMenu is not a function"으로 항상 실패했다 — createMenu/addItem/addToUi 체인으로 교체.
+  SpreadsheetApp.getUi()
+    .createMenu('스토리집')
+    .addItem('① 신간 자동화 켜기 (최초 1회만 실행)', 'installEditTrigger')
+    .addItem('표지·소개 다시 채우기 (ISBN 입력된 행 전체)', 'fillAllMissingCovers')
+    .addItem('전화번호 형식 점검', 'checkPhoneFormats')
+    .addToUi();
 }
 
 // onEdit(e)라는 이름으로 직접 정의하면 "단순 트리거"가 되어 보안상 외부 API 호출(UrlFetchApp)이
