@@ -548,8 +548,10 @@
     color: var(--wood-dark);
     margin-bottom: 8px;
   }
-  .form-row input[type=text] {
+  .form-row input[type=text], .form-row input[type=date] {
     width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
     padding: 14px 16px;
     font-size: 16px;
     border: 1px solid var(--line);
@@ -613,6 +615,13 @@
     color: var(--text-soft);
   }
   .radio-pill.selected { background: var(--wood); color: var(--card); border-color: var(--wood); font-weight: 500; }
+  .payment-choice { margin: 0 0 18px; padding: 0; border: 0; min-width: 0; }
+  .payment-choice legend { margin-bottom: 8px; font-size: 14px; font-weight: 500; color: var(--wood-dark); }
+  .payment-choice label { flex: 1; cursor: pointer; }
+  .payment-choice input { accent-color: var(--wood); margin-right: 6px; }
+  .payment-choice label:has(input:checked) { border-color: var(--wood); background: var(--ivory); color: var(--wood-dark); }
+  .rental-date-hint { margin: 8px 0 0; font-size: 13px; color: var(--text-soft); line-height: 1.6; }
+  #applyDueDate { margin: 10px 0 0; font-size: 14px; font-weight: 500; color: var(--wood-dark); }
 
   .price-box {
     background: #EFEAE0;
@@ -894,7 +903,7 @@
     .rec-title { font-size: 13px; }
 
     .form-card { padding: 18px 16px; }
-    .form-row input[type=text], #returnDate { font-size: 15px; padding: 12px 14px; }
+    .form-row input[type=text], .form-row input[type=date], #returnDate { font-size: 15px; padding: 12px 14px; }
     .radio-pill { font-size: 14px; padding: 12px 8px; }
     .price-box, .purchase-note { padding: 14px 16px; font-size: 13.5px; }
     .pay-info .account { font-size: 15px; }
@@ -991,7 +1000,7 @@
         <p class="guide-item"><b>2. 대여 기간</b> — 2주 (14일)</p>
         <p class="guide-item"><b>3. 대여 금액</b> — 1,000원 / 1권당</p>
         <p class="guide-item"><b>4. 도서 구매</b> — 정가 (책 뒤편에 기재된 금액)</p>
-        <p class="guide-item"><b>5. 계좌 이체</b> — 카카오뱅크 3333-21-3960242 (천슬미)</p>
+        <p class="guide-item"><b>5. 결제</b> — 계좌이체 또는 현금<br>계좌이체: 카카오뱅크 3333-21-3960242 (천슬미)</p>
       </div>
       <div class="guide-divider"></div>
       <div class="guide-block">
@@ -1173,7 +1182,21 @@
         </div>
       </div>
 
+      <fieldset class="payment-choice">
+        <legend>결제수단</legend>
+        <div class="radio-group">
+          <label class="radio-pill"><input type="radio" name="paymentMethod" value="계좌이체" onchange="updatePaymentGuide()" required>계좌이체</label>
+          <label class="radio-pill"><input type="radio" name="paymentMethod" value="현금" onchange="updatePaymentGuide()" required>현금</label>
+        </div>
+      </fieldset>
+
       <div id="rentalFlow">
+        <div class="form-row">
+          <label for="applyLoanDate">실제 대여일</label>
+          <input type="date" id="applyLoanDate" min="1900-01-01" onchange="updateRentalDates()" aria-describedby="rentalDateHint applyDueDate" required>
+          <p class="rental-date-hint" id="rentalDateHint">종이 장부를 옮겨 적는 경우, 책을 실제로 빌린 날짜를 선택해주세요. 대여 기간은 2주입니다.</p>
+          <p id="applyDueDate" aria-live="polite"></p>
+        </div>
         <div class="price-box">
           📖 <span id="priceMainText">대여는 한 권에 <b>2주 동안</b> 대여가 되고, 대여비는 <b>1,000원</b>이에요.</span>
           <p class="price-note">※ 반납일이 지나면 연체료가 청구되니, 반납일을 꼭 지켜주세요 :)</p>
@@ -1181,10 +1204,14 @@
 
         <div class="pay-box">
           <div class="pay-info">
-            <p>계좌이체로 결제해주세요</p>
-            <p class="account">카카오뱅크 3333-21-3960242</p>
-            <p>예금주: 천슬미 · <b id="payTotal">0원</b></p>
-            <p class="pay-hint">입금자명은 <b>신청자 본인 이름</b>으로 보내주세요</p>
+            <p>대여비: <b id="payTotal">0원</b></p>
+            <p class="payment-unselected">결제수단을 선택해주세요.</p>
+            <div class="payment-transfer" style="display:none;">
+              <p>계좌이체로 결제해주세요</p>
+              <p class="account">카카오뱅크 3333-21-3960242 (천슬미)</p>
+              <p class="pay-hint">입금자명은 <b>신청자 본인 이름</b>으로 보내주세요</p>
+            </div>
+            <p class="payment-cash" style="display:none;">현금 결제는 담당자에게 전달해주세요.</p>
           </div>
         </div>
       </div>
@@ -1202,9 +1229,13 @@
             <text x="115" y="102" font-family="Arial" font-size="10" fill="#8B5A2E" text-anchor="middle" font-weight="700">₩</text>
             <circle cx="115" cy="99" r="22" fill="none" stroke="#9C5A2E" stroke-width="1.6" stroke-dasharray="3 3"/>
           </svg>
-          <p class="purchase-text">책 <b>뒷면 하단</b>에 적힌 판매가를 확인하신 뒤, 해당 금액을 계좌이체 해주세요.</p>
-          <p class="account" style="margin-top:6px;">카카오뱅크 3333-21-3960242 (천슬미)</p>
-          <p class="pay-hint">입금자명은 <b>신청자 본인 이름</b>으로 보내주세요</p>
+          <p class="purchase-text">책 <b>뒷면 하단</b>에 적힌 판매가를 확인해주세요.</p>
+          <p class="payment-unselected">결제수단을 선택해주세요.</p>
+          <div class="payment-transfer" style="display:none;">
+            <p class="account" style="margin-top:6px;">카카오뱅크 3333-21-3960242 (천슬미)</p>
+            <p class="pay-hint">해당 금액을 <b>신청자 본인 이름</b>으로 이체해주세요</p>
+          </div>
+          <p class="payment-cash" style="display:none;">현금 결제는 담당자에게 전달해주세요.</p>
         </div>
       </div>
 
@@ -1227,14 +1258,14 @@
 
     <section>
       <h2 class="section-title">관리자 화면</h2>
-      <p class="section-sub">입금 확인, 반납 처리를 여기서 하실 수 있어요</p>
+      <p class="section-sub">결제 확인, 반납 처리를 여기서 하실 수 있어요</p>
 
       <div class="admin-summary" id="adminSummary"></div>
 
       <div class="admin-tabs" id="adminTabs">
         <button class="admin-tab active" onclick="setAdminTab('overdue', this)">연체중</button>
         <button class="admin-tab" onclick="setAdminTab('returning', this)">반납신청 대기</button>
-        <button class="admin-tab" onclick="setAdminTab('unpaid', this)">입금확인 대기</button>
+        <button class="admin-tab" onclick="setAdminTab('unpaid', this)">결제확인 대기</button>
         <button class="admin-tab" onclick="setAdminTab('all', this)">전체</button>
       </div>
 
@@ -1301,7 +1332,7 @@
 
   function fmtDateShort_(str) {
     const d = new Date(str);
-    return (d.getMonth() + 1) + '/' + d.getDate();
+    return d.toLocaleDateString('en-US', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric' });
   }
 
   function bookStatusHtml(st) {
@@ -1454,6 +1485,41 @@
   const MAX_REC = 1;
   const FEE_PER_BOOK = 1000;
   const OVERDUE_FEE_PER_WEEK = 1000;
+  const RENTAL_DAYS = 14;
+
+  function todaySeoul() {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+    const part = name => parts.find(p => p.type === name).value;
+    return part('year') + '-' + part('month') + '-' + part('day');
+  }
+
+  function rentalDateValue(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const date = new Date(value + 'T00:00:00Z');
+    if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) return null;
+    return date;
+  }
+
+  function updateRentalDates() {
+    const input = document.getElementById('applyLoanDate');
+    input.max = todaySeoul();
+    const date = rentalDateValue(input.value);
+    const output = document.getElementById('applyDueDate');
+    if (!date || input.value < input.min || input.value > input.max) {
+      output.textContent = '대여일은 오늘 또는 지난 날짜로 선택해주세요.';
+      return;
+    }
+    date.setUTCDate(date.getUTCDate() + RENTAL_DAYS);
+    output.textContent = '반납 예정일: ' + date.getUTCFullYear() + '년 ' + (date.getUTCMonth() + 1) + '월 ' + date.getUTCDate() + '일';
+  }
+
+  function updatePaymentGuide() {
+    const choice = document.querySelector('input[name="paymentMethod"]:checked');
+    const method = choice ? choice.value : '';
+    document.querySelectorAll('.payment-transfer').forEach(el => { el.style.display = method === '계좌이체' ? 'block' : 'none'; });
+    document.querySelectorAll('.payment-cash').forEach(el => { el.style.display = method === '현금' ? 'block' : 'none'; });
+    document.querySelectorAll('.payment-unselected').forEach(el => { el.style.display = method ? 'none' : 'block'; });
+  }
 
   // ── 회원 / 대여 내역 (구글시트 "대여기록"에서 실시간으로 불러옴) ──
   let currentUser = null;
@@ -1480,7 +1546,7 @@
 
   function fmtDate(str) {
     const d = new Date(str);
-    return (d.getMonth() + 1) + '월 ' + d.getDate() + '일';
+    return d.toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric' });
   }
 
   // 사용자가 입력했거나(이름·전화번호) 신청 시점에 클라이언트가 보낸(도서명·저자 등)
@@ -1566,6 +1632,7 @@
       alert('전화번호 형식을 확인해주세요. 예: 010-1234-5678');
       return;
     }
+
     userSessionSeq += 1;
     currentUser = { name: name, phone: phone };
     document.getElementById('loginBtnText').textContent = name + '님';
@@ -1809,6 +1876,17 @@
       return;
     }
 
+    const paymentChoice = document.querySelector('input[name="paymentMethod"]:checked');
+    if (!paymentChoice || !['계좌이체', '현금'].includes(paymentChoice.value)) {
+      alert('결제수단을 선택해주세요.');
+      return;
+    }
+    const loanDate = document.getElementById('applyLoanDate').value;
+    if (applyMode === 'rental' && (!rentalDateValue(loanDate) || loanDate < '1900-01-01' || loanDate > todaySeoul())) {
+      alert('대여일은 오늘 또는 지난 날짜로 입력해주세요.');
+      return;
+    }
+
     const searchIds = Object.keys(selected);
     const recIds = Object.keys(selectedRec);
     const items = [
@@ -1835,6 +1913,13 @@
     btn.textContent = '신청 처리 중...';
 
     try {
+      // 이전 백엔드에 새 항목이 조용히 누락되어 저장되는 것을 방지한다.
+      const optionsRes = await fetch(APPS_SCRIPT_URL + '?action=application_options');
+      const options = await optionsRes.json();
+      if (!options.ok || options.apiVersion !== 2 || options.rentalDays !== RENTAL_DAYS) {
+        alert('신청 기능을 업데이트하고 있어요. 잠시 후 새로고침해서 다시 시도해주세요.');
+        return;
+      }
       const res = await fetch(APPS_SCRIPT_URL, {
         method: 'POST',
         body: JSON.stringify({
@@ -1842,6 +1927,8 @@
           name: name,
           phone: phone,
           type: applyMode === 'rental' ? '대여' : '구매',
+          paymentMethod: paymentChoice.value,
+          ...(applyMode === 'rental' ? { loanDate: loanDate } : {}),
           items: items
         })
       });
@@ -1853,6 +1940,9 @@
       }
 
       // 신청 성공: 선택 초기화 + 로그인 상태 갱신
+      document.querySelectorAll('input[name="paymentMethod"]').forEach(input => { input.checked = false; });
+      document.getElementById('applyLoanDate').value = '';
+      updatePaymentGuide();
       Object.keys(selected).forEach(k => delete selected[k]);
       Object.keys(selectedRec).forEach(k => delete selectedRec[k]);
       document.querySelectorAll('.pick-checkbox').forEach(cb => { cb.checked = false; });
@@ -1875,6 +1965,10 @@
   }
 
   function goToApply() {
+    const loanDateInput = document.getElementById('applyLoanDate');
+    if (!loanDateInput.value) loanDateInput.value = todaySeoul();
+    updateRentalDates();
+    updatePaymentGuide();
     if (currentUser) {
       document.getElementById('applyName').value = currentUser.name;
       document.getElementById('applyPhone').value = currentUser.phone;
@@ -2014,7 +2108,7 @@
     document.getElementById('adminSummary').innerHTML =
       '<div class="summary-chip warn"><p class="chip-label">연체중</p><p class="chip-value">' + overdue.length + '건</p></div>' +
       '<div class="summary-chip"><p class="chip-label">반납신청 대기</p><p class="chip-value">' + returning.length + '건</p></div>' +
-      '<div class="summary-chip"><p class="chip-label">입금확인 대기</p><p class="chip-value">' + unpaid.length + '건</p></div>';
+      '<div class="summary-chip"><p class="chip-label">결제확인 대기</p><p class="chip-value">' + unpaid.length + '건</p></div>';
 
     let list;
     if (adminTab === 'overdue') list = overdue;
@@ -2033,6 +2127,8 @@
       const isOverdue = ov.overdue;
       let info = '<span class="lbl">신청자</span>' + escapeHtml(r.name) + ' · ' + escapeHtml(r.phone) + '<br>' +
         '<span class="lbl">이용형태</span>' + escapeHtml(r.type) + ' · <span class="lbl">상태</span>' + escapeHtml(r.status);
+      info += '<br><span class="lbl">결제수단</span>' + escapeHtml(r.paymentMethod || '미기록') +
+        ' · <span class="lbl">결제확인</span>' + (r.paymentConfirmed === 'Y' ? '완료' : '대기');
       if (r.type === '대여') {
         info += '<br><span class="lbl">대여일</span>' + fmtDate(r.loanDate) + ' · <span class="lbl">반납예정</span>' + fmtDate(r.dueDate);
       }
@@ -2045,7 +2141,7 @@
 
       let actions = '';
       if (r.paymentConfirmed !== 'Y') {
-        actions += '<button class="admin-btn primary" onclick="adminConfirmPay(' + r.row + ')">입금 확인</button>';
+        actions += '<button class="admin-btn primary" onclick="adminConfirmPay(' + r.row + ')">' + (r.paymentMethod === '현금' ? '현금 수납 확인' : r.paymentMethod === '계좌이체' ? '입금 확인' : '결제 확인') + '</button>';
       }
       if (r.status === '대여중' || r.status === '반납신청') {
         actions += '<button class="admin-btn" onclick="adminCompleteReturn(' + r.row + ')">반납 완료 처리</button>';
@@ -2069,7 +2165,7 @@
   }
 
   async function adminConfirmPay(row) {
-    await postAdminAction_('admin_confirm_pay', row, '입금 확인 처리되었습니다.');
+    await postAdminAction_('admin_confirm_pay', row, '결제 확인 처리되었습니다.');
   }
 
   async function adminCompleteReturn(row) {

@@ -28,6 +28,7 @@ const ADMIN_TOKEN_TTL_SEC = 1800;
 function doGet(e) {
   const action = e.parameter.action;
   try {
+    if (action === 'application_options') return jsonOut({ ok: true, apiVersion: 2, rentalDays: RENTAL_DAYS });
     if (action === 'books') return getBooks();
     if (action === 'status') return getStatus();
     if (action === 'myloans') return getMyLoans(e.parameter.phone || '');
@@ -488,6 +489,7 @@ function getAdminRecords(payload) {
       returnRequestDate: toIso(r['반납신청일시']),
       returnTimeSlot: r['반납신청시간대'] || '',
       paymentConfirmed: r['입금확인'] || 'N',
+      paymentMethod: r['결제수단'] || '',
     }));
     const result = { ok: true, records };
     if (!viaToken) {
@@ -539,11 +541,32 @@ function getRecommendBookIds_() {
 }
 
 // ── 대여/구매 신청 ──
+// 날짜만 받은 경우 한국 시간 자정으로 저장한다. 기기 시간대와 무관하게 같은 날짜가 된다.
+function parseRentalDate_(value, now) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(value + 'T00:00:00+09:00');
+  if (!Number.isFinite(date.getTime())) return null;
+  if (Utilities.formatDate(date, 'Asia/Seoul', 'yyyy-MM-dd') !== value) return null;
+  if (value < '1900-01-01' || value > Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd')) return null;
+  return date;
+}
+
 function applyBooks(payload) {
   const name = String(payload.name || '').trim();
   const rawPhone = String(payload.phone || '').trim();
   const type = payload.type;
   const items = payload.items || [];
+  const paymentMethod = payload.paymentMethod == null ? '' : payload.paymentMethod;
+  const now = new Date();
+  // 기존 화면의 요청은 빈 결제수단을 허용해 호환성을 유지한다. 새 화면에서는 필수 선택.
+  if (paymentMethod !== '' && paymentMethod !== '계좌이체' && paymentMethod !== '현금') {
+    return jsonOut({ ok: false, error: '결제수단은 계좌이체 또는 현금을 선택해주세요.' });
+  }
+  let loanDate = now;
+  if (type === '대여' && payload.loanDate !== undefined) {
+    loanDate = parseRentalDate_(payload.loanDate, now);
+    if (!loanDate) return jsonOut({ ok: false, error: '대여일은 오늘 또는 지난 날짜로 입력해주세요.' });
+  }
 
   if (!name || !rawPhone) return jsonOut({ ok: false, error: '이름과 연락처를 입력해주세요.' });
   if (!isValidPhone_(rawPhone)) return jsonOut({ ok: false, error: '전화번호 형식을 확인해주세요. 예: 010-1234-5678' });
@@ -617,30 +640,42 @@ function applyBooks(payload) {
     }
 
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LOANS);
-    const now = new Date();
-    const dueDate = new Date(now.getTime() + RENTAL_DAYS * 24 * 60 * 60 * 1000);
+    const dueDate = new Date(loanDate.getTime() + RENTAL_DAYS * 24 * 60 * 60 * 1000);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+    const requiredHeaders = ['ID', '이름', '전화번호', '도서관리번호', '도서명', '저자', '이용형태', '대출일', '반납예정일', '상태', '반납신청일시', '반납신청시간대', '입금확인'];
+    if (requiredHeaders.some(h => headers.indexOf(h) < 0)) {
+      return jsonOut({ ok: false, error: '대여기록 시트의 열 이름을 확인해주세요.' });
+    }
+    // 기존 열·기록을 이동하지 않고 결제수단 열만 추가한다. 수동으로 만든 열이 있으면 재사용.
+    if (headers.indexOf('결제수단') < 0) {
+      if (headers.length === sheet.getMaxColumns()) sheet.insertColumnAfter(headers.length);
+      sheet.getRange(1, headers.length + 1).setValue('결제수단');
+      headers.push('결제수단');
+    }
 
     resolvedItems.forEach(it => {
-      sheet.appendRow([
-        Utilities.getUuid(),
-        name,
+      const record = {
+        'ID': Utilities.getUuid(),
+        '이름': name,
         // 앞의 '(작은따옴표)는 시트에 저장은 안 되고 "이 값은 숫자로 변환하지 말고
         // 텍스트 그대로 저장하라"는 표시다 — 안 붙이면 스프레드시트가 "010-..."을
         // 숫자로 인식해 맨 앞 0을 지워버린다. 그러면 이후 모든 조회가
         // normalizePhone_()로 재정규화한 값과 맞지 않아 "내 대여목록"·중복대여
         // 검사가 전부 깨진다(단순 표시 문제가 아니라 매칭 자체가 틀어짐).
-        "'" + phone,
-        it.bookId,
-        it.title,
-        it.author,
-        type,
-        now,
-        type === '대여' ? dueDate : '',
-        type === '대여' ? '대여중' : '구매신청',
-        '',
-        '',
-        'N',
-      ]);
+        '전화번호': "'" + phone,
+        '도서관리번호': it.bookId,
+        '도서명': it.title,
+        '저자': it.author,
+        '이용형태': type,
+        '대출일': type === '대여' ? loanDate : now,
+        '반납예정일': type === '대여' ? dueDate : '',
+        '상태': type === '대여' ? '대여중' : '구매신청',
+        '반납신청일시': '',
+        '반납신청시간대': '',
+        '입금확인': 'N',
+        '결제수단': paymentMethod,
+      };
+      sheet.appendRow(headers.map(h => Object.prototype.hasOwnProperty.call(record, h) ? record[h] : ''));
     });
 
     return jsonOut({ ok: true });
